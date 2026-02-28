@@ -33,7 +33,7 @@ descriptions of scope and goals.
   the Game Boy address space: 0000–7FFF ROM, C000–DFFF WRAM, FF80–FFFE HRAM,
   FF00–FF7F I/O stubs. Active-device select lines, active-device read mux.
   Test with the CPU executing from ROM into RAM.
-- [ ] **09 — Boot ROM and First Hardware Run**: Embed a small test program in
+- [x] **09 — Boot ROM and First Hardware Run**: Embed a small test program in
   BRAM as the boot ROM. Wire CPU → bus → ROM → WRAM on the actual FPGA.
   Verify execution by toggling an LED or writing a known pattern to memory.
   First time real hardware runs real instructions.

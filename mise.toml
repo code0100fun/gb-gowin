@@ -8,10 +8,10 @@ python = "3.14"
 DEVICE = "GW2AR-LV18QN88C8/I7"
 DEVICE_ALT = "GW2A-18C"
 BOARD = "tangnano20k"
-TOP = "blinky"
+TOP = "gb_top"
 BUILD_DIR = "build"
 CST = "rtl/platform/constraints.cst"
-SV_FILES = "rtl/platform/blinky.sv"
+SV_FILES = "rtl/platform/gb_top.sv rtl/core/bus.sv rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv"
 
 # ============================================================================
 # Synthesis flow
@@ -56,7 +56,7 @@ depends = ["pack"]
 
 [tasks.sim]
 description = "Run all Verilator testbenches"
-depends = ["sim:blinky", "sim:single_port_ram", "sim:dual_port_ram", "sim:rom", "sim:regfile", "sim:alu", "sim:decoder", "sim:cpu", "sim:bus", "sim:cpu_bus"]
+depends = ["sim:blinky", "sim:single_port_ram", "sim:dual_port_ram", "sim:rom", "sim:regfile", "sim:alu", "sim:decoder", "sim:cpu", "sim:bus", "sim:cpu_bus", "sim:gb_top"]
 
 [tasks."sim:blinky"]
 description = "Run blinky testbench"
@@ -185,6 +185,24 @@ verilator --cc --exe --build --trace \
     rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv \
     sim/tb/tb_cpu_bus.cpp
 "./$BUILD_DIR/sim/obj_cpu_bus/tb_cpu_bus"
+"""
+
+[tasks."sim:gb_top"]
+description = "Run FPGA top-level testbench"
+run = """
+#!/usr/bin/env bash
+set -e
+verilator --cc --exe --build --trace \
+    -Wall -Wno-UNUSEDSIGNAL -Wno-CASEOVERLAP -Wno-UNOPTFLAT -Wno-PINCONNECTEMPTY \
+    -CFLAGS "-I$(pwd)/sim/common" \
+    -Mdir "$BUILD_DIR/sim/obj_gb_top" \
+    -o tb_gb_top \
+    -GROM_SIZE=64 '-GROM_FILE="sim/data/boot_test.hex"' \
+    rtl/platform/gb_top.sv rtl/core/bus.sv \
+    rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv \
+    rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv \
+    sim/tb/tb_gb_top.cpp
+"./$BUILD_DIR/sim/obj_gb_top/tb_gb_top"
 """
 
 [tasks."sim:cpu"]

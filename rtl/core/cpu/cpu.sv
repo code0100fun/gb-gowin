@@ -823,6 +823,7 @@ module cpu (
                     8'hC5, 8'hD5, 8'hE5, 8'hF5: begin
                         // Inline stack pair read mux
                         logic [15:0] push_val;
+                        push_val = 16'h0000;
                         unique case (ir[5:4])
                             2'd0: push_val = {rf_out_b, rf_out_c};
                             2'd1: push_val = {rf_out_d, rf_out_e};
