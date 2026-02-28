@@ -1,0 +1,8 @@
+build/
+obj_dir/
+sim/roms/*.gb
+sim/roms/*.gbc
+*.fs
+*.vcd
+*.fst
+*.json.bak

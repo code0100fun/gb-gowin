@@ -1,0 +1,169 @@
+# Game Boy DMG — Tang Nano 20K
+# Open-source toolchain: Yosys + nextpnr-himbaechel + Apicula + openFPGAloader
+
+[tools]
+python = "3.14"
+
+[env]
+DEVICE = "GW2AR-LV18QN88C8/I7"
+DEVICE_ALT = "GW2AR-18C"
+BOARD = "tangnano20k"
+TOP = "blinky"
+BUILD_DIR = "build"
+CST = "rtl/platform/constraints.cst"
+SV_FILES = "rtl/platform/blinky.sv"
+
+# ============================================================================
+# Synthesis flow
+# ============================================================================
+
+[tasks.synth]
+description = "Synthesize with Yosys"
+run = """
+mkdir -p $BUILD_DIR
+yosys -p "read_verilog -sv ${SV_FILES}; synth_gowin -top $TOP -json $BUILD_DIR/synth.json"
+"""
+
+[tasks.pnr]
+description = "Place and route with nextpnr-himbaechel"
+depends = ["synth"]
+run = """
+nextpnr-himbaechel --json $BUILD_DIR/synth.json --write $BUILD_DIR/pnr.json \
+  --device $DEVICE --vopt family=$DEVICE_ALT --vopt cst=$CST
+"""
+
+[tasks.pack]
+description = "Generate bitstream with gowin_pack"
+depends = ["pnr"]
+run = """
+gowin_pack -d $DEVICE_ALT -o $BUILD_DIR/gb.fs $BUILD_DIR/pnr.json
+"""
+
+[tasks.flash]
+description = "Upload bitstream to Tang Nano 20K"
+depends = ["pack"]
+run = """
+openFPGALoader -b $BOARD $BUILD_DIR/gb.fs
+"""
+
+[tasks.build]
+description = "Full build: synth → pnr → pack"
+depends = ["pack"]
+
+# ============================================================================
+# Simulation
+# ============================================================================
+
+[tasks.sim]
+description = "Run all Verilator testbenches"
+run = """
+#!/usr/bin/env bash
+set -e
+failed=0
+for tb in sim/tb/tb_*.cpp; do
+    name=$(basename "$tb" .cpp | sed 's/^tb_//')
+    sv_file=$(find rtl -name "${name}.sv" | head -1)
+    if [ -z "$sv_file" ]; then
+        echo "SKIP: No .sv found for $name"
+        continue
+    fi
+    echo "=== Building $name ==="
+    verilator --cc --exe --build --trace \
+        -Wall -Wno-UNUSEDSIGNAL \
+        -CFLAGS "-I$(pwd)/sim/common" \
+        -Mdir "$BUILD_DIR/sim/obj_${name}" \
+        -o "tb_${name}" \
+        "$sv_file" "$tb"
+    echo "=== Running $name ==="
+    "./$BUILD_DIR/sim/obj_${name}/tb_${name}" || failed=1
+done
+exit $failed
+"""
+
+[tasks."sim:blinky"]
+description = "Run blinky testbench only"
+run = """
+#!/usr/bin/env bash
+set -e
+verilator --cc --exe --build --trace \
+    -Wall -Wno-UNUSEDSIGNAL \
+    -CFLAGS "-I$(pwd)/sim/common" \
+    -Mdir "$BUILD_DIR/sim/obj_blinky" \
+    -o tb_blinky \
+    rtl/platform/blinky.sv sim/tb/tb_blinky.cpp
+"./$BUILD_DIR/sim/obj_blinky/tb_blinky"
+"""
+
+# ============================================================================
+# Dependency installation
+# ============================================================================
+
+[tasks.deps]
+description = "Install all dependencies"
+depends = ["deps:pacman", "deps:pip", "deps:nextpnr"]
+
+[tasks."deps:pacman"]
+description = "Install official repo packages via pacman"
+run = """
+sudo pacman -S --needed yosys verilator gtkwave openfpgaloader \
+  cmake boost eigen python python-pip
+"""
+
+[tasks."deps:pip"]
+description = "Install Python packages via pip"
+run = """
+pip install --break-system-packages apycula
+"""
+
+[tasks."deps:nextpnr"]
+description = "Build and install nextpnr-himbaechel with Gowin backend from source"
+depends = ["deps:pip"]
+run = """
+#!/usr/bin/env bash
+set -e
+
+NEXTPNR_DIR="$BUILD_DIR/deps/nextpnr"
+
+if command -v nextpnr-himbaechel &>/dev/null; then
+    echo "nextpnr-himbaechel already installed: $(nextpnr-himbaechel --version)"
+    read -p "Rebuild and reinstall? [y/N] " answer
+    [[ "$answer" =~ ^[Yy]$ ]] || exit 0
+fi
+
+mkdir -p "$BUILD_DIR/deps"
+
+if [ -d "$NEXTPNR_DIR" ]; then
+    echo "Updating existing nextpnr clone..."
+    git -C "$NEXTPNR_DIR" pull
+else
+    echo "Cloning nextpnr..."
+    git clone https://github.com/YosysHQ/nextpnr.git "$NEXTPNR_DIR"
+fi
+
+echo "Building nextpnr-himbaechel (Gowin only)..."
+rm -rf "$NEXTPNR_DIR/build"
+cmake -B "$NEXTPNR_DIR/build" -S "$NEXTPNR_DIR" \
+    -DARCH=himbaechel -DHIMBAECHEL_UARCH=gowin
+cmake --build "$NEXTPNR_DIR/build" -j$(nproc)
+
+echo "Installing (requires sudo)..."
+sudo cmake --install "$NEXTPNR_DIR/build"
+
+echo "Done: $(nextpnr-himbaechel --version)"
+"""
+
+# ============================================================================
+# Utility
+# ============================================================================
+
+[tasks.clean]
+description = "Remove build artifacts"
+run = """
+rm -rf $BUILD_DIR
+"""
+
+[tasks.detect]
+description = "Detect connected FPGA board"
+run = """
+openFPGALoader --detect
+"""
