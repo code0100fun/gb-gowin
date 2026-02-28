@@ -56,7 +56,7 @@ depends = ["pack"]
 
 [tasks.sim]
 description = "Run all Verilator testbenches"
-depends = ["sim:blinky", "sim:single_port_ram", "sim:dual_port_ram", "sim:rom", "sim:regfile", "sim:alu", "sim:decoder"]
+depends = ["sim:blinky", "sim:single_port_ram", "sim:dual_port_ram", "sim:rom", "sim:regfile", "sim:alu", "sim:decoder", "sim:cpu"]
 
 [tasks."sim:blinky"]
 description = "Run blinky testbench"
@@ -153,6 +153,22 @@ verilator --cc --exe --build \
     -o tb_decoder \
     rtl/core/cpu/decoder.sv sim/tb/tb_decoder.cpp
 "./$BUILD_DIR/sim/obj_decoder/tb_decoder"
+"""
+
+[tasks."sim:cpu"]
+description = "Run CPU testbench"
+run = """
+#!/usr/bin/env bash
+set -e
+verilator --cc --exe --build --trace \
+    -Wall -Wno-UNUSEDSIGNAL -Wno-CASEOVERLAP \
+    -CFLAGS "-I$(pwd)/sim/common" \
+    -Mdir "$BUILD_DIR/sim/obj_cpu" \
+    -o tb_cpu \
+    rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv \
+    rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv \
+    sim/tb/tb_cpu.cpp
+"./$BUILD_DIR/sim/obj_cpu/tb_cpu"
 """
 
 # ============================================================================

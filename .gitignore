@@ -6,3 +6,4 @@ sim/roms/*.gbc
 *.vcd
 *.fst
 *.json.bak
+abc.history

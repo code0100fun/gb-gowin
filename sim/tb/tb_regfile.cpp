@@ -196,9 +196,40 @@ int main(int argc, char** argv) {
     tb.check(tb.dut->pc == 0x0100, "PC = 0x0100");
 
     // -------------------------------------------------------------------
-    // Test 7: Write priority — r16 write and r8 write to same register
+    // Test 7: Direct register outputs
     // -------------------------------------------------------------------
-    printf("Test 7: Write priority (r8 vs r16 simultaneous)\n");
+    printf("Test 7: Direct register outputs\n");
+
+    // Set known values via r8 writes
+    // B=0xAA, C=0xBB, D=0xCC, E=0xDD, H=0xEE, L=0xFF, A=0x11
+    {
+        uint8_t dvals[] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11};
+        for (int i = 0; i < 8; i++) {
+            if (i == 6) continue;
+            clear_we();
+            tb.dut->r8_we    = 1;
+            tb.dut->r8_wsel  = i;
+            tb.dut->r8_wdata = dvals[i];
+            tb.tick();
+        }
+
+        clear_we();
+        tb.dut->eval();
+        bool dok = true;
+        if (tb.dut->out_b != 0xAA) { printf("    out_b: got 0x%02X, expected 0xAA\n", tb.dut->out_b); dok = false; }
+        if (tb.dut->out_c != 0xBB) { printf("    out_c: got 0x%02X, expected 0xBB\n", tb.dut->out_c); dok = false; }
+        if (tb.dut->out_d != 0xCC) { printf("    out_d: got 0x%02X, expected 0xCC\n", tb.dut->out_d); dok = false; }
+        if (tb.dut->out_e != 0xDD) { printf("    out_e: got 0x%02X, expected 0xDD\n", tb.dut->out_e); dok = false; }
+        if (tb.dut->out_h != 0xEE) { printf("    out_h: got 0x%02X, expected 0xEE\n", tb.dut->out_h); dok = false; }
+        if (tb.dut->out_l != 0xFF) { printf("    out_l: got 0x%02X, expected 0xFF\n", tb.dut->out_l); dok = false; }
+        if (tb.dut->out_a != 0x11) { printf("    out_a: got 0x%02X, expected 0x11\n", tb.dut->out_a); dok = false; }
+        tb.check(dok, "Direct register outputs match written values");
+    }
+
+    // -------------------------------------------------------------------
+    // Test 8: Write priority — r16 write and r8 write to same register
+    // -------------------------------------------------------------------
+    printf("Test 8: Write priority (r8 vs r16 simultaneous)\n");
 
     // Write BC=0x1234 via r16 and B=0xFF via r8 simultaneously
     // The last always_ff statement to assign reg_b wins (r16stk is after r16)

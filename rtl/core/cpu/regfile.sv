@@ -60,7 +60,13 @@ module regfile (
 
     output logic [15:0] pc,
     input  logic        pc_we,
-    input  logic [15:0] pc_wdata
+    input  logic [15:0] pc_wdata,
+
+    // Direct register outputs (active simultaneously, no port conflicts)
+    output logic [7:0]  out_a, out_f,
+    output logic [7:0]  out_b, out_c,
+    output logic [7:0]  out_d, out_e,
+    output logic [7:0]  out_h, out_l
 );
 
     // Storage: 8 individual registers + SP + PC
@@ -69,6 +75,16 @@ module regfile (
     logic [7:0] reg_d, reg_e;
     logic [7:0] reg_h, reg_l;
     logic [15:0] reg_sp, reg_pc;
+
+    // Direct register outputs
+    assign out_a = reg_a;
+    assign out_f = reg_f;
+    assign out_b = reg_b;
+    assign out_c = reg_c;
+    assign out_d = reg_d;
+    assign out_e = reg_e;
+    assign out_h = reg_h;
+    assign out_l = reg_l;
 
     // Flag extraction — F upper nibble only, lower nibble always 0
     assign flags = reg_f[7:4];
