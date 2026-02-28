@@ -8,25 +8,30 @@ python = "3.14"
 DEVICE = "GW2AR-LV18QN88C8/I7"
 DEVICE_ALT = "GW2A-18C"
 BOARD = "tangnano20k"
-TOP = "gb_top"
 BUILD_DIR = "build"
 CST = "rtl/platform/constraints.cst"
-SV_FILES = "rtl/platform/gb_top.sv rtl/core/bus.sv rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv"
 
 # ============================================================================
 # Synthesis flow
 # ============================================================================
 
 [tasks.synth]
-description = "Synthesize with Yosys"
+description = "Synthesize with Yosys (usage: mise run synth [top])"
 run = """
-mkdir -p $BUILD_DIR
+#!/usr/bin/env bash
+set -e
+TOP="${1:-blinky}"
+case "$TOP" in
+    blinky)    SV_FILES="rtl/platform/blinky.sv" ;;
+    gb_top)    SV_FILES="rtl/platform/gb_top.sv rtl/core/bus.sv rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv" ;;
+    *)         echo "Unknown top module: $TOP (available: blinky, gb_top)"; exit 1 ;;
+esac
+mkdir -p "$BUILD_DIR"
 yosys -p "read_verilog -sv ${SV_FILES}; synth_gowin -top $TOP -json $BUILD_DIR/synth.json"
 """
 
 [tasks.pnr]
 description = "Place and route with nextpnr-himbaechel"
-depends = ["synth"]
 run = """
 nextpnr-himbaechel --json $BUILD_DIR/synth.json --write $BUILD_DIR/pnr.json \
   --device $DEVICE --vopt family=$DEVICE_ALT --vopt cst=$CST
@@ -34,21 +39,28 @@ nextpnr-himbaechel --json $BUILD_DIR/synth.json --write $BUILD_DIR/pnr.json \
 
 [tasks.pack]
 description = "Generate bitstream with gowin_pack"
-depends = ["pnr"]
 run = """
 gowin_pack -d $DEVICE_ALT -o $BUILD_DIR/gb.fs $BUILD_DIR/pnr.json
 """
 
-[tasks.flash]
-description = "Upload bitstream to Tang Nano 20K"
-depends = ["pack"]
+[tasks.build]
+description = "Full build: synth → pnr → pack (usage: mise run build [top])"
 run = """
-openFPGALoader -b $BOARD $BUILD_DIR/gb.fs
+#!/usr/bin/env bash
+set -e
+mise run synth -- "${1:-blinky}"
+mise run pnr
+mise run pack
 """
 
-[tasks.build]
-description = "Full build: synth → pnr → pack"
-depends = ["pack"]
+[tasks.flash]
+description = "Build and flash to Tang Nano 20K (usage: mise run flash [top])"
+run = """
+#!/usr/bin/env bash
+set -e
+mise run build -- "${1:-blinky}"
+openFPGALoader -b "$BOARD" "$BUILD_DIR/gb.fs"
+"""
 
 # ============================================================================
 # Simulation
