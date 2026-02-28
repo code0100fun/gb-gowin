@@ -44,6 +44,12 @@ class Testbench {
             dut->trace(m_trace, 99);
             m_trace->open(trace_file.c_str());
         }
+
+        // Initial eval to establish signal states before the first clock edge.
+        // Without this, Verilator may not detect the first posedge properly.
+        dut->clk = 0;
+        dut->eval();
+        if (m_trace) m_trace->dump(0);
     }
 
     ~Testbench() {

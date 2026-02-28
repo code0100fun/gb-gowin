@@ -6,7 +6,7 @@ python = "3.14"
 
 [env]
 DEVICE = "GW2AR-LV18QN88C8/I7"
-DEVICE_ALT = "GW2AR-18C"
+DEVICE_ALT = "GW2A-18C"
 BOARD = "tangnano20k"
 TOP = "blinky"
 BUILD_DIR = "build"
@@ -56,32 +56,10 @@ depends = ["pack"]
 
 [tasks.sim]
 description = "Run all Verilator testbenches"
-run = """
-#!/usr/bin/env bash
-set -e
-failed=0
-for tb in sim/tb/tb_*.cpp; do
-    name=$(basename "$tb" .cpp | sed 's/^tb_//')
-    sv_file=$(find rtl -name "${name}.sv" | head -1)
-    if [ -z "$sv_file" ]; then
-        echo "SKIP: No .sv found for $name"
-        continue
-    fi
-    echo "=== Building $name ==="
-    verilator --cc --exe --build --trace \
-        -Wall -Wno-UNUSEDSIGNAL \
-        -CFLAGS "-I$(pwd)/sim/common" \
-        -Mdir "$BUILD_DIR/sim/obj_${name}" \
-        -o "tb_${name}" \
-        "$sv_file" "$tb"
-    echo "=== Running $name ==="
-    "./$BUILD_DIR/sim/obj_${name}/tb_${name}" || failed=1
-done
-exit $failed
-"""
+depends = ["sim:blinky", "sim:single_port_ram", "sim:dual_port_ram", "sim:rom", "sim:regfile", "sim:alu", "sim:decoder"]
 
 [tasks."sim:blinky"]
-description = "Run blinky testbench only"
+description = "Run blinky testbench"
 run = """
 #!/usr/bin/env bash
 set -e
@@ -92,6 +70,89 @@ verilator --cc --exe --build --trace \
     -o tb_blinky \
     rtl/platform/blinky.sv sim/tb/tb_blinky.cpp
 "./$BUILD_DIR/sim/obj_blinky/tb_blinky"
+"""
+
+[tasks."sim:single_port_ram"]
+description = "Run single-port RAM testbench"
+run = """
+#!/usr/bin/env bash
+set -e
+verilator --cc --exe --build --trace \
+    -Wall -Wno-UNUSEDSIGNAL \
+    -CFLAGS "-I$(pwd)/sim/common" \
+    -Mdir "$BUILD_DIR/sim/obj_single_port_ram" \
+    -o tb_single_port_ram \
+    rtl/memory/single_port_ram.sv sim/tb/tb_single_port_ram.cpp
+"./$BUILD_DIR/sim/obj_single_port_ram/tb_single_port_ram"
+"""
+
+[tasks."sim:dual_port_ram"]
+description = "Run dual-port RAM testbench"
+run = """
+#!/usr/bin/env bash
+set -e
+verilator --cc --exe --build --trace \
+    -Wall -Wno-UNUSEDSIGNAL \
+    -CFLAGS "-I$(pwd)/sim/common" \
+    -Mdir "$BUILD_DIR/sim/obj_dual_port_ram" \
+    -o tb_dual_port_ram \
+    rtl/memory/dual_port_ram.sv sim/tb/tb_dual_port_ram.cpp
+"./$BUILD_DIR/sim/obj_dual_port_ram/tb_dual_port_ram"
+"""
+
+[tasks."sim:rom"]
+description = "Run ROM testbench"
+run = """
+#!/usr/bin/env bash
+set -e
+verilator --cc --exe --build --trace \
+    -Wall -Wno-UNUSEDSIGNAL \
+    -CFLAGS "-I$(pwd)/sim/common" \
+    -Mdir "$BUILD_DIR/sim/obj_rom" \
+    -o tb_rom \
+    -GADDR_WIDTH=8 -GDATA_WIDTH=8 '-GINIT_FILE="sim/data/test_rom.hex"' \
+    rtl/memory/rom.sv sim/tb/tb_rom.cpp
+"./$BUILD_DIR/sim/obj_rom/tb_rom"
+"""
+
+[tasks."sim:regfile"]
+description = "Run register file testbench"
+run = """
+#!/usr/bin/env bash
+set -e
+verilator --cc --exe --build --trace \
+    -Wall -Wno-UNUSEDSIGNAL \
+    -CFLAGS "-I$(pwd)/sim/common" \
+    -Mdir "$BUILD_DIR/sim/obj_regfile" \
+    -o tb_regfile \
+    rtl/core/cpu/regfile.sv sim/tb/tb_regfile.cpp
+"./$BUILD_DIR/sim/obj_regfile/tb_regfile"
+"""
+
+[tasks."sim:alu"]
+description = "Run ALU testbench"
+run = """
+#!/usr/bin/env bash
+set -e
+verilator --cc --exe --build \
+    -Wall -Wno-UNUSEDSIGNAL \
+    -Mdir "$BUILD_DIR/sim/obj_alu" \
+    -o tb_alu \
+    rtl/core/cpu/alu.sv sim/tb/tb_alu.cpp
+"./$BUILD_DIR/sim/obj_alu/tb_alu"
+"""
+
+[tasks."sim:decoder"]
+description = "Run decoder testbench"
+run = """
+#!/usr/bin/env bash
+set -e
+verilator --cc --exe --build \
+    -Wall -Wno-UNUSEDSIGNAL \
+    -Mdir "$BUILD_DIR/sim/obj_decoder" \
+    -o tb_decoder \
+    rtl/core/cpu/decoder.sv sim/tb/tb_decoder.cpp
+"./$BUILD_DIR/sim/obj_decoder/tb_decoder"
 """
 
 # ============================================================================
