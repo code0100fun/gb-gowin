@@ -29,7 +29,7 @@ descriptions of scope and goals.
   into a complete CPU with M-cycle state machine. Fetch/decode/execute loop,
   CB prefix handling, conditional branches. 15 test programs covering all
   instruction groups.
-- [ ] **08 — Memory Bus**: Address decoder that maps the CPU's memory port onto
+- [x] **08 — Memory Bus**: Address decoder that maps the CPU's memory port onto
   the Game Boy address space: 0000–7FFF ROM, C000–DFFF WRAM, FF80–FFFE HRAM,
   FF00–FF7F I/O stubs. Active-device select lines, active-device read mux.
   Test with the CPU executing from ROM into RAM.

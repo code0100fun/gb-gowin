@@ -56,7 +56,7 @@ depends = ["pack"]
 
 [tasks.sim]
 description = "Run all Verilator testbenches"
-depends = ["sim:blinky", "sim:single_port_ram", "sim:dual_port_ram", "sim:rom", "sim:regfile", "sim:alu", "sim:decoder", "sim:cpu"]
+depends = ["sim:blinky", "sim:single_port_ram", "sim:dual_port_ram", "sim:rom", "sim:regfile", "sim:alu", "sim:decoder", "sim:cpu", "sim:bus", "sim:cpu_bus"]
 
 [tasks."sim:blinky"]
 description = "Run blinky testbench"
@@ -153,6 +153,38 @@ verilator --cc --exe --build \
     -o tb_decoder \
     rtl/core/cpu/decoder.sv sim/tb/tb_decoder.cpp
 "./$BUILD_DIR/sim/obj_decoder/tb_decoder"
+"""
+
+[tasks."sim:bus"]
+description = "Run memory bus testbench"
+run = """
+#!/usr/bin/env bash
+set -e
+verilator --cc --exe --build --trace \
+    -Wall -Wno-UNUSEDSIGNAL \
+    -CFLAGS "-I$(pwd)/sim/common" \
+    -Mdir "$BUILD_DIR/sim/obj_bus" \
+    -o tb_bus \
+    rtl/core/bus.sv sim/tb/tb_bus.cpp
+"./$BUILD_DIR/sim/obj_bus/tb_bus"
+"""
+
+[tasks."sim:cpu_bus"]
+description = "Run CPU+bus integration testbench"
+run = """
+#!/usr/bin/env bash
+set -e
+verilator --cc --exe --build --trace \
+    -Wall -Wno-UNUSEDSIGNAL -Wno-CASEOVERLAP -Wno-UNOPTFLAT \
+    -CFLAGS "-I$(pwd)/sim/common" \
+    -Mdir "$BUILD_DIR/sim/obj_cpu_bus" \
+    -o tb_cpu_bus \
+    -GROM_SIZE=64 '-GROM_FILE="sim/data/cpu_bus_test.hex"' \
+    sim/top/cpu_bus_top.sv rtl/core/bus.sv \
+    rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv \
+    rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv \
+    sim/tb/tb_cpu_bus.cpp
+"./$BUILD_DIR/sim/obj_cpu_bus/tb_cpu_bus"
 """
 
 [tasks."sim:cpu"]
