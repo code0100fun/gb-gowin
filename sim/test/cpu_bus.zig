@@ -33,6 +33,7 @@ test "CPU+bus integration" {
 
     // Reset
     dut.set(.reset, 1);
+    dut.set(.int_request, 0);
     dut.tick();
     dut.set(.reset, 0);
 

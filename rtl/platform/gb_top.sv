@@ -51,6 +51,10 @@ module gb_top #(
 
     logic        halted;
 
+    // Interrupt wires
+    logic [4:0]  int_req;
+    logic [4:0]  int_ack;
+
     // ---------------------------------------------------------------
     // CPU
     // ---------------------------------------------------------------
@@ -62,6 +66,8 @@ module gb_top #(
         .mem_wr   (cpu_wr),
         .mem_wdata(cpu_wdata),
         .mem_rdata(cpu_rdata),
+        .int_req  (int_req),
+        .int_ack  (int_ack),
         .halted   (halted),
         .dbg_pc   (), .dbg_sp(),
         .dbg_a    (), .dbg_f (),
@@ -118,7 +124,7 @@ module gb_top #(
     end
 
     // ---------------------------------------------------------------
-    // I/O registers (minimal: LED register at FF01)
+    // I/O registers
     // ---------------------------------------------------------------
     logic [7:0] led_reg;
     initial led_reg = 8'h00;
@@ -130,14 +136,36 @@ module gb_top #(
             led_reg <= io_wdata;
     end
 
-    // I/O reads: return LED register for addr 01, 0x00 otherwise
-    assign io_rdata = (io_addr == 7'h01) ? led_reg : 8'h00;
-
     // LEDs are active low
     assign led = ~led_reg[5:0];
 
     // ---------------------------------------------------------------
-    // IE register
+    // IF register (FF0F) — interrupt flags
+    // ---------------------------------------------------------------
+    logic [4:0] if_reg;
+    initial if_reg = 5'h00;
+
+    always_ff @(posedge clk) begin
+        if (reset)
+            if_reg <= 5'h00;
+        else if (int_ack != 5'b0)
+            if_reg <= if_reg & ~int_ack;
+        else if (io_cs && io_wr && io_addr == 7'h0F)
+            if_reg <= io_wdata[4:0];
+        // Future: external sources OR bits in (timer, PPU, etc.)
+    end
+
+    // I/O read mux
+    always_comb begin
+        unique case (io_addr)
+            7'h01:   io_rdata = led_reg;
+            7'h0F:   io_rdata = {3'b111, if_reg};
+            default: io_rdata = 8'h00;
+        endcase
+    end
+
+    // ---------------------------------------------------------------
+    // IE register (FFFF) — interrupt enable
     // ---------------------------------------------------------------
     logic [7:0] ie_reg;
     initial ie_reg = 8'h00;
@@ -148,5 +176,10 @@ module gb_top #(
         else if (ie_cs && ie_we)
             ie_reg <= ie_wdata;
     end
+
+    // ---------------------------------------------------------------
+    // Interrupt request: IF & IE
+    // ---------------------------------------------------------------
+    assign int_req = if_reg & ie_reg[4:0];
 
 endmodule

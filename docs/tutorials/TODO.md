@@ -37,7 +37,7 @@ descriptions of scope and goals.
   BRAM as the boot ROM. Wire CPU → bus → ROM → WRAM on the actual FPGA.
   Verify execution by toggling an LED or writing a known pattern to memory.
   First time real hardware runs real instructions.
-- [ ] **10 — Interrupts**: Interrupt controller with IF and IE registers at
+- [x] **10 — Interrupts**: Interrupt controller with IF and IE registers at
   FF0F/FFFF. Interrupt dispatch (vector lookup, push PC, jump). HALT wake-up
   on pending interrupt. EI/DI/RETI integration with the existing CPU IME
   logic. Five interrupt sources (VBlank, STAT, Timer, Serial, Joypad) wired

@@ -23,6 +23,10 @@ module cpu (
     output logic [7:0]  mem_wdata,
     input  logic [7:0]  mem_rdata,
 
+    // Interrupt interface
+    input  logic [4:0]  int_req,    // IF & IE (pre-masked pending interrupts)
+    output logic [4:0]  int_ack,    // one-hot: bit to clear in IF during dispatch
+
     // Debug / status outputs
     output logic        halted,
     output logic [15:0] dbg_pc,
@@ -44,6 +48,9 @@ module cpu (
     logic        halt_mode;   // CPU is halted
     logic        ime;         // Interrupt master enable
     logic        ie_delay;    // EI takes effect after next instruction
+    logic        int_dispatch; // Interrupt dispatch sequence in progress
+    logic [2:0]  int_vec_idx;  // Which interrupt (0-4) is being dispatched
+    logic        halt_bug;     // HALT with IME=0 wake: suppress PC++ on next fetch
 
     // =================================================================
     // Sub-module wires
@@ -252,6 +259,23 @@ module cpu (
     assign dbg_l  = rf_out_l;
 
     // =================================================================
+    // Interrupt priority encoder
+    // =================================================================
+    logic [2:0] int_select;
+    logic       int_pending;
+
+    always_comb begin
+        if      (int_req[0]) begin int_select = 3'd0; int_pending = 1'b1; end
+        else if (int_req[1]) begin int_select = 3'd1; int_pending = 1'b1; end
+        else if (int_req[2]) begin int_select = 3'd2; int_pending = 1'b1; end
+        else if (int_req[3]) begin int_select = 3'd3; int_pending = 1'b1; end
+        else if (int_req[4]) begin int_select = 3'd4; int_pending = 1'b1; end
+        else                 begin int_select = 3'd0; int_pending = 1'b0; end
+    end
+
+    wire [15:0] dispatch_vector = {8'h00, 2'b01, int_vec_idx, 3'b000};
+
+    // =================================================================
     // Combinational: memory bus + ALU routing + register writes
     // =================================================================
     // All regfile write controls are COMBINATIONAL so they take effect
@@ -290,6 +314,7 @@ module cpu (
         rf_sp_wdata     = 16'h0000;
         rf_pc_we        = 1'b0;
         rf_pc_wdata     = 16'h0000;
+        int_ack         = 5'b0;
 
         if (reset) begin
             // During reset: set SP and PC to initial values
@@ -297,6 +322,41 @@ module cpu (
             rf_sp_wdata = 16'hFFFE;
             rf_pc_we    = 1'b1;
             rf_pc_wdata = 16'h0000;
+        end else if (int_dispatch) begin
+            // =============================================================
+            // Interrupt dispatch: 5 M-cycles (m_cycle 0-4)
+            // =============================================================
+            unique case (m_cycle)
+                3'd0: begin
+                    // Internal delay — no bus activity
+                end
+                3'd1: begin
+                    // Internal delay — no bus activity
+                end
+                3'd2: begin
+                    // Decrement SP (no memory access yet)
+                    rf_sp_we    = 1'b1;
+                    rf_sp_wdata = rf_sp - 16'd1;
+                end
+                3'd3: begin
+                    // Push PC high byte to [SP], SP--
+                    mem_addr  = rf_sp;
+                    mem_wr    = 1'b1;
+                    mem_wdata = rf_pc[15:8];
+                    rf_sp_we    = 1'b1;
+                    rf_sp_wdata = rf_sp - 16'd1;
+                end
+                3'd4: begin
+                    // Push PC low byte to [SP], jump to vector
+                    mem_addr  = rf_sp;
+                    mem_wr    = 1'b1;
+                    mem_wdata = rf_pc[7:0];
+                    rf_pc_we    = 1'b1;
+                    rf_pc_wdata = dispatch_vector;
+                    int_ack     = 5'b1 << int_vec_idx;
+                end
+                default: ;
+            endcase
         end else if (halt_mode) begin
             // Halted: no bus activity, no writes
         end else if (m_cycle == 0) begin
@@ -306,8 +366,8 @@ module cpu (
             mem_addr = rf_pc;
             mem_rd   = 1'b1;
 
-            // Default: PC++ on every fetch
-            rf_pc_we    = 1'b1;
+            // Default: PC++ on every fetch (suppressed by HALT bug)
+            rf_pc_we    = !halt_bug;
             rf_pc_wdata = rf_pc + 16'd1;
 
             // ALU routing for single-cycle instructions
@@ -1152,22 +1212,50 @@ module cpu (
     // verilator lint_off CASEOVERLAP
     always_ff @(posedge clk) begin
         if (reset) begin
-            ir        <= 8'h00;
-            m_cycle   <= 3'd0;
-            z_reg     <= 8'h00;
-            w_reg     <= 8'h00;
-            cb_mode   <= 1'b0;
-            halt_mode <= 1'b0;
-            ime       <= 1'b0;
-            ie_delay  <= 1'b0;
+            ir           <= 8'h00;
+            m_cycle      <= 3'd0;
+            z_reg        <= 8'h00;
+            w_reg        <= 8'h00;
+            cb_mode      <= 1'b0;
+            halt_mode    <= 1'b0;
+            ime          <= 1'b0;
+            ie_delay     <= 1'b0;
+            int_dispatch <= 1'b0;
+            int_vec_idx  <= 3'd0;
+            halt_bug     <= 1'b0;
         end else if (halt_mode) begin
-            // Stay halted
+            // Wake-up: any interrupt pending (IF & IE != 0)
+            if (int_pending) begin
+                halt_mode <= 1'b0;
+                if (ime) begin
+                    // Wake and dispatch interrupt
+                    int_dispatch <= 1'b1;
+                    int_vec_idx  <= int_select;
+                    m_cycle      <= 3'd0;
+                end else begin
+                    // Wake without dispatch (HALT bug)
+                    halt_bug <= 1'b1;
+                end
+            end
+        end else if (int_dispatch) begin
+            // Interrupt dispatch: advance through 5-cycle sequence
+            if (m_cycle == 3'd4) begin
+                int_dispatch <= 1'b0;
+                ime          <= 1'b0;
+                m_cycle      <= 3'd0;
+            end else begin
+                m_cycle <= m_cycle + 3'd1;
+            end
         end else begin
             // EI delay
             if (ie_delay) begin
                 ime      <= 1'b1;
                 ie_delay <= 1'b0;
             end
+
+            // Clear HALT bug after one fetch cycle
+            if (m_cycle == 0 && halt_bug)
+                halt_bug <= 1'b0;
 
             if (m_cycle == 0) begin
                 // FETCH: latch opcode
@@ -1183,9 +1271,15 @@ module cpu (
                 end else if (dec_is_di) begin
                     ime <= 1'b0;
                 end else if (dec_mcycles == 3'd1) begin
-                    // Single-cycle: already executed in comb, stay in fetch
-                    m_cycle <= 3'd0;
+                    // Single-cycle: check for pending interrupt
                     if (cb_mode) cb_mode <= 1'b0;
+                    if (ime && int_pending) begin
+                        int_dispatch <= 1'b1;
+                        int_vec_idx  <= int_select;
+                        m_cycle      <= 3'd0;
+                    end else begin
+                        m_cycle <= 3'd0;
+                    end
                 end else begin
                     m_cycle <= 3'd1;
                 end
@@ -1278,8 +1372,15 @@ module cpu (
 
                 // Advance or return to fetch
                 if (m_cycle == dec_mcycles - 3'd1) begin
-                    m_cycle <= 3'd0;
                     if (cb_mode) cb_mode <= 1'b0;
+                    // Check for pending interrupt at instruction boundary
+                    if (ime && int_pending) begin
+                        int_dispatch <= 1'b1;
+                        int_vec_idx  <= int_select;
+                        m_cycle      <= 3'd0;
+                    end else begin
+                        m_cycle <= 3'd0;
+                    end
                 end else begin
                     m_cycle <= m_cycle + 3'd1;
                 end

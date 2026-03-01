@@ -10,6 +10,9 @@ module cpu_bus_top #(
     input  logic        clk,
     input  logic        reset,
 
+    // Interrupt request lines (directly set IF bits)
+    input  logic [4:0]  int_request,
+
     // Debug / status
     output logic        halted,
     output logic [15:0] dbg_pc,
@@ -17,7 +20,9 @@ module cpu_bus_top #(
     output logic [7:0]  dbg_a, dbg_f,
     output logic [7:0]  dbg_b, dbg_c,
     output logic [7:0]  dbg_d, dbg_e,
-    output logic [7:0]  dbg_h, dbg_l
+    output logic [7:0]  dbg_h, dbg_l,
+    output logic [7:0]  dbg_ie,
+    output logic [7:0]  dbg_if
 );
 
     // CPU ↔ bus wires
@@ -45,6 +50,10 @@ module cpu_bus_top #(
     logic        ie_cs, ie_we;
     logic [7:0]  ie_wdata, ie_rdata;
 
+    // Interrupt wires
+    logic [4:0]  int_req;
+    logic [4:0]  int_ack;
+
     // ---------------------------------------------------------------
     // CPU
     // ---------------------------------------------------------------
@@ -56,6 +65,8 @@ module cpu_bus_top #(
         .mem_wr   (cpu_wr),
         .mem_wdata(cpu_wdata),
         .mem_rdata(cpu_rdata),
+        .int_req  (int_req),
+        .int_ack  (int_ack),
         .halted   (halted),
         .dbg_pc   (dbg_pc),
         .dbg_sp   (dbg_sp),
@@ -135,16 +146,56 @@ module cpu_bus_top #(
             hram_mem[hram_addr] <= hram_wdata;
     end
 
-    // I/O stub: reads 0x00 for now (peripherals will be added later)
-    assign io_rdata = 8'h00;
+    // ---------------------------------------------------------------
+    // IF register (FF0F) — interrupt flags
+    // ---------------------------------------------------------------
+    logic [4:0] if_reg;
+    initial if_reg = 5'h00;
 
-    // IE register (single byte)
+    always_ff @(posedge clk) begin
+        if (reset)
+            if_reg <= 5'h00;
+        else begin
+            // External sources set bits (OR'd in)
+            if (int_request != 5'b0)
+                if_reg <= if_reg | int_request;
+            // CPU write replaces value
+            if (io_cs && io_wr && io_addr == 7'h0F)
+                if_reg <= io_wdata[4:0];
+            // Dispatch acknowledge clears bit (highest priority)
+            if (int_ack != 5'b0)
+                if_reg <= if_reg & ~int_ack;
+        end
+    end
+
+    // I/O read mux
+    always_comb begin
+        unique case (io_addr)
+            7'h0F:   io_rdata = {3'b111, if_reg};
+            default: io_rdata = 8'h00;
+        endcase
+    end
+
+    // ---------------------------------------------------------------
+    // IE register (FFFF)
+    // ---------------------------------------------------------------
     logic [7:0] ie_reg;
     initial ie_reg = 8'h00;
     assign ie_rdata = ie_reg;
     always_ff @(posedge clk) begin
-        if (ie_cs && ie_we)
+        if (reset)
+            ie_reg <= 8'h00;
+        else if (ie_cs && ie_we)
             ie_reg <= ie_wdata;
     end
+
+    // ---------------------------------------------------------------
+    // Interrupt request: IF & IE
+    // ---------------------------------------------------------------
+    assign int_req = if_reg & ie_reg[4:0];
+
+    // Debug outputs
+    assign dbg_ie = ie_reg;
+    assign dbg_if = {3'b111, if_reg};
 
 endmodule

@@ -128,6 +128,32 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const int_bus_mod = verilator.addModel(b, .{
+        .name = "int_bus_top",
+        .top_module = "cpu_bus_top",
+        .sources = &.{
+            "sim/top/cpu_bus_top.sv",
+            "rtl/core/bus.sv",
+            "rtl/core/cpu/cpu.sv",
+            "rtl/core/cpu/regfile.sv",
+            "rtl/core/cpu/alu.sv",
+            "rtl/core/cpu/decoder.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+            "-Wno-CASEOVERLAP",
+            "-Wno-UNOPTFLAT",
+            "--prefix",
+            "Vint_bus_top",
+            "-GROM_SIZE=128",
+            "-GROM_FILE=\"sim/data/int_test.hex\"",
+        },
+    });
+
     const gb_top_mod = verilator.addModel(b, .{
         .name = "gb_top",
         .sources = &.{
@@ -166,6 +192,7 @@ pub fn build(b: *std.Build) void {
         .{ "sim/test/regfile.zig", "regfile", regfile_mod, "test:regfile" },
         .{ "sim/test/cpu.zig", "cpu", cpu_mod, "test:cpu" },
         .{ "sim/test/cpu_bus.zig", "cpu_bus_top", cpu_bus_mod, "test:cpu_bus" },
+        .{ "sim/test/interrupts.zig", "int_bus_top", int_bus_mod, "test:interrupts" },
         .{ "sim/test/gb_top.zig", "gb_top", gb_top_mod, "test:gb_top" },
     };
 

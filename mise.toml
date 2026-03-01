@@ -111,6 +111,10 @@ run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:cpu"
 description = "Run CPU+bus integration testbench"
 run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:cpu_bus"
 
+[tasks."test:interrupts"]
+description = "Run interrupt integration testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:interrupts"
+
 [tasks."test:gb_top"]
 description = "Run FPGA top-level testbench"
 run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:gb_top"
