@@ -12,8 +12,8 @@ descriptions of scope and goals.
   flip-flops, clock domains. Mental model for how HDL maps to hardware.
 - [x] **02 — Blinky**: First design on the Tang Nano 20K. Clock divider,
   constraints file, full synth→PnR→pack→flash flow.
-- [x] **03 — Simulation and Testbenches**: Verilator C++ testbenches, VCD
-  waveform output, the Testbench<T> helper class, pass/fail reporting.
+- [x] **03 — Simulation and Testbenches**: Verilator + zig-verilator testbenches
+  in Zig, VCD waveform output, `zig build test` integration, mise task runner.
 - [x] **04 — Memory Primitives**: Single-port RAM, dual-port RAM, and ROM
   modules. BRAM inference on Gowin. Hex file initialization.
 

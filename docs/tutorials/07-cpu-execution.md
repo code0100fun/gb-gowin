@@ -196,7 +196,7 @@ register at any time without competing for the existing read ports.
 
 ## Test Strategy
 
-The testbench (`sim/tb/tb_cpu.cpp`) uses a 64KB memory array with combinational
+The testbench (`sim/test/cpu.zig`) uses a 64KB memory array with combinational
 reads. Each test loads a small program, runs until HALT, and checks final
 register values.
 
@@ -224,10 +224,10 @@ register values.
 
 ```bash
 # Run just the CPU testbench
-mise run sim:cpu
+mise run test:cpu
 
 # Run the full simulation suite (all modules)
-mise run sim
+mise run test
 ```
 
 ## What's Next

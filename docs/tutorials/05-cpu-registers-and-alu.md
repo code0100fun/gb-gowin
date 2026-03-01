@@ -507,7 +507,7 @@ source with all operations):
 
 ## Testing
 
-### Register File Tests (`sim/tb/tb_regfile.cpp`)
+### Register File Tests (`sim/test/regfile.zig`)
 
 | Test | What it verifies |
 |------|--------------------|
@@ -517,56 +517,65 @@ source with all operations):
 | Stack pair (r16stk) | AF read/write, POP AF masks F lower nibble |
 | Flag access | Set/clear individual flags via flags port |
 | SP and PC | Direct 16-bit register writes and reads |
+| Direct register outputs | out_a through out_l match expected values |
 | Write priority | r8 and r16 writes work independently |
 
 The POP AF masking test is especially important:
 
-```cpp
+```zig
 // Write AF via r16stk — low nibble of F should be masked
-tb.dut->r16stk_we    = 1;
-tb.dut->r16stk_wsel  = 3;  // AF
-tb.dut->r16stk_wdata = 0x12FF;  // A=0x12, F=0xFF → should become 0xF0
-tb.tick();
+dut.set(.r16stk_we, 1);
+dut.set(.r16stk_wsel, 3); // AF
+dut.set(.r16stk_wdata, 0x12FF); // A=0x12, F=0xFF → should become 0xF0
+dut.tick();
 
-tb.dut->r16stk_rsel = 3;
-tb.dut->eval();
-tb.check(tb.dut->r16stk_rdata == 0x12F0,
-         "POP AF masks F lower nibble: 0x12FF → 0x12F0");
+dut.set(.r16stk_rsel, 3);
+dut.eval();
+try std.testing.expectEqual(@as(u64, 0x12F0), dut.get(.r16stk_rdata));
 ```
 
-### ALU Tests (`sim/tb/tb_alu.cpp`)
+### ALU Tests (`sim/test/alu.zig`)
 
 The ALU testbench is data-driven — each test is a struct with inputs and
 expected outputs, run through a common harness:
 
-```cpp
-struct TestVec {
-    const char* name;
-    uint8_t  op;
-    uint8_t  a, b;
-    uint8_t  bit_sel;
-    uint8_t  flags_in;
-    uint8_t  exp_result;
-    uint8_t  exp_flags;
+```zig
+const TestVec = struct {
+    name: []const u8,
+    op: u8,
+    a: u8,
+    b: u8 = 0,
+    bit_sel: u8 = 0,
+    flags_in: u8 = 0,
+    exp_result: u8,
+    exp_flags: u8,
 };
 ```
 
-Since the ALU is purely combinational (no clock), we don't use the `Testbench`
-template. Instead we just set inputs and call `eval()`:
+Since the ALU is purely combinational (no clock), we just set inputs and call
+`eval()`:
 
-```cpp
-dut->op       = t.op;
-dut->a        = t.a;
-dut->b        = t.b;
-dut->bit_sel  = t.bit_sel;
-dut->flags_in = t.flags_in;
-dut->eval();
+```zig
+fn runTests(dut: *alu.Model, tests: []const TestVec) !void {
+    for (tests) |t| {
+        dut.set(.op, t.op);
+        dut.set(.a, t.a);
+        dut.set(.b, t.b);
+        dut.set(.bit_sel, t.bit_sel);
+        dut.set(.flags_in, t.flags_in);
+        dut.eval();
 
-bool result_ok = (dut->result == t.exp_result);
-bool flags_ok  = (dut->flags_out == t.exp_flags);
+        const result: u8 = @truncate(dut.get(.result));
+        const flags: u8 = @truncate(dut.get(.flags_out));
+
+        if (result != t.exp_result or flags != t.exp_flags) {
+            return error.TestFailed;
+        }
+    }
+}
 ```
 
-The test suite covers **139 test vectors** across 12 groups:
+The test suite covers **129 test vectors** across 12 groups:
 
 | Group | Tests | What it covers |
 |-------|-------|---------------|
@@ -587,18 +596,11 @@ The test suite covers **139 test vectors** across 12 groups:
 
 ```bash
 # Run all testbenches
-mise run sim
+mise run test
 
 # Run just the new ones
-mise run sim:regfile
-mise run sim:alu
-```
-
-Expected output:
-
-```
-[sim:regfile] --- Results: 13 passed, 0 failed ---
-[sim:alu]     --- Results: 139 passed, 0 failed ---
+mise run test:regfile
+mise run test:alu
 ```
 
 ## Why Flip-Flops Instead of BSRAM?

@@ -258,27 +258,32 @@ Total instruction time = 1 (CB prefix) + CB mcycles.
 
 ### Exhaustive Cycle Count Verification
 
-The testbench hardcodes the expected M-cycle count for every opcode in a
-256-entry lookup table and checks all of them:
+The testbench (`sim/test/decoder.zig`) hardcodes the expected M-cycle count for
+every opcode in a 256-entry lookup table and checks all of them:
 
-```cpp
-static const uint8_t BASE_MCYCLES_TAKEN[256] = {
+```zig
+const BASE_MCYCLES_TAKEN = [256]u8{
     //      0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
-    /* 0 */ 1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1,
-    /* 1 */ 1, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1,
+    // 0
+    1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1,
+    // 1
+    1, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1,
     // ... all 256 entries
 };
 
-for (int op = 0; op < 256; op++) {
-    dut->opcode    = op;
-    dut->cb_prefix = 0;
-    dut->cond_met  = 1;
-    dut->eval();
-    assert(dut->mcycles == BASE_MCYCLES_TAKEN[op]);
+for (0..256) |op| {
+    dut.set(.opcode, @as(u8, @truncate(op)));
+    dut.set(.cb_prefix, 0);
+    dut.set(.cond_met, 1);
+    dut.eval();
+    try std.testing.expectEqual(
+        @as(u64, BASE_MCYCLES_TAKEN[op]),
+        dut.get(.mcycles),
+    );
 }
 ```
 
-The test suite covers **868 test vectors** across 8 groups:
+The test suite covers all 256+256 opcodes across 8 test groups:
 
 | Test | Count | What it verifies |
 |------|-------|-----------------|
@@ -294,16 +299,10 @@ The test suite covers **868 test vectors** across 8 groups:
 ## Running the Tests
 
 ```bash
-mise run sim:decoder
+mise run test:decoder
 
 # Or all tests
-mise run sim
-```
-
-Expected output:
-
-```
-[sim:decoder] --- Results: 868 passed, 0 failed ---
+mise run test
 ```
 
 ## What the Decoder Doesn't Do (Yet)

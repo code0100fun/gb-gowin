@@ -187,26 +187,39 @@ care (they track all branches), but synthesis tools require every signal in an
 
 ## Simulation Testbench
 
-The testbench (`sim/tb/tb_gb_top.cpp`) drives the reset button, waits 50
+The testbench (`sim/test/gb_top.zig`) drives the reset button, waits 50
 cycles, and checks the LED output:
 
-```cpp
-    tb.dut->btn_s1 = 0;  // press reset
-    tb.tick(5);
-    tb.dut->btn_s1 = 1;  // release
-    tb.tick(3);           // synchronizer propagation
-    tb.tick(50);          // run program
+```zig
+test "boot test — LED output" {
+    var dut = try gb_top.Model.init(.{});
+    defer dut.deinit();
 
-    uint8_t led_out = tb.dut->led & 0x3F;
-    uint8_t led_reg = (~led_out) & 0x3F;
-    tb.check(led_reg == 0x1F, "LED register = 0x1F");
+    // Reset: btn_s1 active low (pressed = 0)
+    dut.set(.btn_s1, 0);
+    dut.set(.btn_s2, 1);
+    for (0..5) |_| dut.tick();
+
+    // Release reset
+    dut.set(.btn_s1, 1);
+    for (0..3) |_| dut.tick(); // 2-FF synchronizer propagation
+
+    // Run enough cycles for the program to complete (~14 M-cycles)
+    for (0..50) |_| dut.tick();
+
+    // LEDs are active low: led = ~led_reg[5:0].
+    // Expected led_reg = 0x1F (binary 011111).
+    const led_out: u8 = @truncate(dut.get(.led) & 0x3F);
+    const led_reg = (~led_out) & 0x3F;
+    try std.testing.expectEqual(@as(u8, 0x1F), led_reg);
+}
 ```
 
 ## Building and Running
 
 ```bash
 # Simulate
-mise run sim:gb_top
+mise run test:gb_top
 
 # Full build (synth → place-and-route → bitstream)
 mise run build

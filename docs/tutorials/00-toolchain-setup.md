@@ -243,7 +243,7 @@ The key targets are:
 
 | Target | What it does |
 |--------|-------------|
-| `mise run sim` | Run all Verilator testbenches |
+| `mise run test` | Run all Verilator testbenches |
 | `mise run synth` | Synthesize with Yosys |
 | `mise run pnr` | Place and route with nextpnr-himbaechel |
 | `mise run pack` | Generate bitstream with Apicula |

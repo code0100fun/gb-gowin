@@ -230,28 +230,25 @@ the bus would add a cycle of latency and break this timing model.
 
 ## Testing the Bus
 
-### Unit Test (sim/tb/tb_bus.cpp)
+### Unit Test (sim/test/bus.zig)
 
-Since the bus has no clock, we don't use the `Testbench<T>` wrapper (which
-expects a `clk` port). Instead we drive the Verilator model directly with
+Since the bus has no clock, we drive the Verilator model directly with
 `eval()`:
 
-```cpp
-#include "Vbus.h"
-#include <verilated.h>
+```zig
+const bus = @import("bus");
 
-static void probe(Vbus* d, uint16_t addr, uint8_t rom_rd = 0xAA,
-                  uint8_t wram_rd = 0xBB, uint8_t hram_rd = 0xCC,
-                  uint8_t io_rd = 0xDD, uint8_t ie_rd = 0xEE) {
-    d->cpu_addr   = addr;
-    d->cpu_rd     = 1;
-    d->cpu_wr     = 0;
-    d->rom_rdata  = rom_rd;
-    d->wram_rdata = wram_rd;
-    d->hram_rdata = hram_rd;
-    d->io_rdata   = io_rd;
-    d->ie_rdata   = ie_rd;
-    d->eval();
+fn probe(dut: *bus.Model, addr: u16) void {
+    dut.set(.cpu_addr, addr);
+    dut.set(.cpu_rd, 1);
+    dut.set(.cpu_wr, 0);
+    dut.set(.cpu_wdata, 0);
+    dut.set(.rom_rdata, 0xAA);
+    dut.set(.wram_rdata, 0xBB);
+    dut.set(.hram_rdata, 0xCC);
+    dut.set(.io_rdata, 0xDD);
+    dut.set(.ie_rdata, 0xEE);
+    dut.eval();
 }
 ```
 
@@ -268,7 +265,7 @@ WRAM (0xC000, 0xC100, 0xDFFF), Echo RAM (0xE000, 0xFDFF), OAM/unusable stubs,
 I/O (0xFF00, 0xFF7F), HRAM (0xFF80, 0xFFFE), IE (0xFFFF), and write routing
 for WRAM, I/O, and IE.
 
-### Integration Test (sim/tb/tb_cpu_bus.cpp)
+### Integration Test (sim/test/cpu_bus.zig)
 
 This test wires the real CPU to the bus with combinational memory arrays in a
 top-level wrapper (`sim/top/cpu_bus_top.sv`). A hex file
@@ -330,13 +327,13 @@ the same loop that exists when the CPU testbench does
 
 ```bash
 # Run just the bus unit test
-mise run sim:bus
+mise run test:bus
 
 # Run the CPU+bus integration test
-mise run sim:cpu_bus
+mise run test:cpu_bus
 
 # Run the full simulation suite
-mise run sim
+mise run test
 ```
 
 ## What's Next

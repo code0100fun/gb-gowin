@@ -328,7 +328,7 @@ rom #(.ADDR_WIDTH(8), .INIT_FILE("path/to/boot.hex")) boot_rom_inst (...);
 
 Each module gets its own testbench. Let's look at the key tests.
 
-### Single-Port RAM Tests (`sim/tb/tb_single_port_ram.cpp`)
+### Single-Port RAM Tests (`sim/test/single_port_ram.zig`)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -340,25 +340,28 @@ Each module gets its own testbench. Let's look at the key tests.
 
 The read-first test is especially important:
 
-```cpp
-// Write 0x42 to address 0x0A
-tb.dut->we    = 1;
-tb.dut->addr  = 0x0A;
-tb.dut->wdata = 0x42;
-tb.tick();
+```zig
+test "read-first behavior" {
+    var dut = try ram.Model.init(.{});
+    defer dut.deinit();
 
-// Now write 0x99 to the same address (simultaneously reading)
-tb.dut->we    = 1;
-tb.dut->addr  = 0x0A;
-tb.dut->wdata = 0x99;
-tb.tick();
+    // Write 0x42 to address 0x0A
+    dut.set(.we, 1);
+    dut.set(.addr, 0x0A);
+    dut.set(.wdata, 0x42);
+    dut.tick();
 
-// Read output should be the OLD value (0x42)
-tb.check(tb.dut->rdata == 0x42,
-         "Read-first: simultaneous read+write returns old value");
+    // Simultaneous read+write: output should be OLD value
+    dut.set(.we, 1);
+    dut.set(.addr, 0x0A);
+    dut.set(.wdata, 0x99);
+    dut.tick();
+
+    try std.testing.expectEqual(@as(u64, 0x42), dut.get(.rdata));
+}
 ```
 
-### Dual-Port RAM Tests (`sim/tb/tb_dual_port_ram.cpp`)
+### Dual-Port RAM Tests (`sim/test/dual_port_ram.zig`)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -368,22 +371,28 @@ tb.check(tb.dut->rdata == 0x42,
 | Independent clocks | Ports work with separate clock signals |
 | Bulk verify | 64-address fill via port A, read back via port B |
 
-The dual-port testbench drives the two clocks manually since the `testbench.h`
-helper expects a single `clk` port:
+The dual-port RAM has two independent clocks (`clk_a`, `clk_b`), so it's
+defined with `.clock = null` in `build.zig` — we toggle clocks manually:
 
-```cpp
-static void tick(Vdual_port_ram* dut, VerilatedVcdC* trace) {
-    dut->clk_a = 1;
-    dut->clk_b = 1;
-    dut->eval();
-    // ...
-    dut->clk_a = 0;
-    dut->clk_b = 0;
-    dut->eval();
+```zig
+fn tick(dut: *dpr.Model) void {
+    dut.set(.clk_a, 1);
+    dut.set(.clk_b, 1);
+    dut.eval();
+    dut.set(.clk_a, 0);
+    dut.set(.clk_b, 0);
+    dut.eval();
+}
+
+fn tickA(dut: *dpr.Model) void {
+    dut.set(.clk_a, 1);
+    dut.eval();
+    dut.set(.clk_a, 0);
+    dut.eval();
 }
 ```
 
-### ROM Tests (`sim/tb/tb_rom.cpp`)
+### ROM Tests (`sim/test/rom.zig`)
 
 | Test | What it verifies |
 |------|-----------------|
@@ -394,41 +403,37 @@ static void tick(Vdual_port_ram* dut, VerilatedVcdC* trace) {
 
 The synchronous latency test confirms that ROM reads are registered:
 
-```cpp
-// Set address and tick — output updates
-tb.dut->addr = 0;
-tb.tick();
-uint8_t val = tb.dut->rdata;
+```zig
+test "synchronous read latency" {
+    var dut = try rom.Model.init(.{});
+    defer dut.deinit();
 
-// Change address — output does NOT change until next tick
-tb.dut->addr = 5;
-tb.dut->eval();  // combinational only, no clock edge
-tb.check(tb.dut->rdata == val, "Output unchanged before clock edge");
+    // Set address to 0 and tick — output updates
+    dut.set(.addr, 0);
+    dut.tick();
+    const val_at_0 = dut.get(.rdata);
 
-// Now tick — output updates
-tb.tick();
-tb.check(tb.dut->rdata == EXPECTED[5], "Output updates after clock edge");
+    // Change address — output should NOT change until next tick
+    dut.set(.addr, 5);
+    dut.eval(); // combinational only, no clock edge
+    try std.testing.expectEqual(val_at_0, dut.get(.rdata));
+
+    // Now tick — output updates
+    dut.tick();
+    try std.testing.expectEqual(@as(u64, EXPECTED[5]), dut.get(.rdata));
+}
 ```
 
 ## Running the Tests
 
 ```bash
-# Run all testbenches (runs in parallel)
-mise run sim
+# Run all testbenches
+mise run test
 
 # Run just one
-mise run sim:single_port_ram
-mise run sim:dual_port_ram
-mise run sim:rom
-```
-
-Expected output:
-
-```
-[sim:single_port_ram] --- Results: 6 passed, 0 failed ---
-[sim:dual_port_ram]   --- Results: 6 passed, 0 failed ---
-[sim:rom]             --- Results: 5 passed, 0 failed ---
-[sim:blinky]          --- Results: 5 passed, 0 failed ---
+mise run test:single_port_ram
+mise run test:dual_port_ram
+mise run test:rom
 ```
 
 ## How Yosys Infers BSRAM
