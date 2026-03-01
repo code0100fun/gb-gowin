@@ -20,6 +20,7 @@ module st7789 (
 
     // Pixel interface
     input  logic [15:0] pixel_data, // RGB565 pixel to send
+    input  logic        pixel_ready,// high when pixel_data is valid (from PPU pipeline)
     output logic [7:0]  pixel_x,    // current column (0–159)
     output logic [7:0]  pixel_y,    // current row (0–143)
     output logic        pixel_req,  // high for 1 cycle when pixel_data is sampled
@@ -275,7 +276,7 @@ module st7789 (
 
                 // ---- Pixel streaming ----
                 S_STREAM_HI: begin
-                    if (!spi_busy) begin
+                    if (!spi_busy && pixel_ready) begin
                         lcd_cs    <= 1'b0;
                         lcd_dc    <= 1'b1;
                         shift_reg <= pixel_data[15:8];

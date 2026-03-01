@@ -69,6 +69,7 @@ module cpu_bus_top #(
         .mem_wr   (cpu_wr),
         .mem_wdata(cpu_wdata),
         .mem_rdata(cpu_rdata),
+        .mem_wait (1'b0),
         .int_req  (int_req),
         .int_ack  (int_ack),
         .halted   (halted),

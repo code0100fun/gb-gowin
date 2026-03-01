@@ -1,7 +1,8 @@
 // Game Boy FPGA top-level — Tang Nano 20K.
 //
 // Wires CPU → bus → ROM / WRAM / HRAM with an LED register for
-// visible output. Memory uses combinational reads (distributed RAM).
+// visible output. VRAM and WRAM use BSRAM (synchronous reads);
+// the CPU pauses for one cycle via mem_wait during BSRAM reads.
 module gb_top #(
     parameter int ROM_SIZE = 256,
     parameter     ROM_FILE = "sim/data/boot_test.hex"
@@ -78,6 +79,7 @@ module gb_top #(
         .mem_wr   (cpu_wr),
         .mem_wdata(cpu_wdata),
         .mem_rdata(cpu_rdata),
+        .mem_wait (mem_wait),
         .int_req  (int_req),
         .int_ack  (int_ack),
         .halted   (halted),
@@ -122,10 +124,15 @@ module gb_top #(
     assign rom_rdata = rom_mem[rom_addr[$clog2(ROM_SIZE)-1:0]];
 
     // ---------------------------------------------------------------
-    // WRAM — stub for now (8 KB distributed RAM exceeds LUT budget).
-    // Will be replaced with BSRAM in a later tutorial.
+    // WRAM — 8 KB BSRAM (synchronous reads, 1-cycle latency)
     // ---------------------------------------------------------------
-    assign wram_rdata = 8'hFF;
+    single_port_ram #(.ADDR_WIDTH(13), .DATA_WIDTH(8)) u_wram (
+        .clk  (clk),
+        .we   (wram_cs && wram_we),
+        .addr (wram_addr),
+        .wdata(wram_wdata),
+        .rdata(wram_rdata)
+    );
 
     // ---------------------------------------------------------------
     // HRAM (127 bytes, combinational read, synchronous write)
@@ -136,6 +143,21 @@ module gb_top #(
         if (hram_cs && hram_we)
             hram_mem[hram_addr] <= hram_wdata;
     end
+
+    // ---------------------------------------------------------------
+    // BSRAM wait-state generation
+    // ---------------------------------------------------------------
+    // VRAM and WRAM use synchronous BSRAM — reads take 1 extra cycle.
+    // Cycle 0: CPU reads VRAM/WRAM → mem_wait=1, CPU freezes.
+    // Cycle 1: bsram_read_done=1 → mem_wait=0, data valid, CPU proceeds.
+    logic bsram_read_done;
+    always_ff @(posedge clk) begin
+        if (reset)
+            bsram_read_done <= 1'b0;
+        else
+            bsram_read_done <= (vram_cs || wram_cs) && cpu_rd && !bsram_read_done;
+    end
+    wire mem_wait = (vram_cs || wram_cs) && cpu_rd && !bsram_read_done;
 
     // ---------------------------------------------------------------
     // I/O registers
@@ -239,26 +261,29 @@ module gb_top #(
     logic [7:0]  lcd_pixel_y;
     logic [15:0] lcd_pixel_data;
     logic        lcd_pixel_req;
+    logic        lcd_pixel_ready;
 
     ppu u_ppu (
-        .clk            (clk),
-        .reset          (reset),
-        .cpu_vram_addr  (vram_addr),
-        .cpu_vram_cs    (vram_cs),
-        .cpu_vram_we    (vram_we),
-        .cpu_vram_wdata (vram_wdata),
-        .cpu_vram_rdata (vram_rdata),
-        .io_cs          (io_cs),
-        .io_addr        (io_addr),
-        .io_wr          (io_wr),
-        .io_rd          (io_rd),
-        .io_wdata       (io_wdata),
-        .io_rdata       (ppu_rdata),
-        .io_rdata_valid (ppu_rdata_valid),
-        .pixel_x        (lcd_pixel_x),
-        .pixel_y        (lcd_pixel_y),
-        .pixel_data     (lcd_pixel_data),
-        .irq_vblank     (ppu_irq_vblank)
+        .clk              (clk),
+        .reset            (reset),
+        .cpu_vram_addr    (vram_addr),
+        .cpu_vram_cs      (vram_cs),
+        .cpu_vram_we      (vram_we),
+        .cpu_vram_wdata   (vram_wdata),
+        .cpu_vram_rdata   (vram_rdata),
+        .io_cs            (io_cs),
+        .io_addr          (io_addr),
+        .io_wr            (io_wr),
+        .io_rd            (io_rd),
+        .io_wdata         (io_wdata),
+        .io_rdata         (ppu_rdata),
+        .io_rdata_valid   (ppu_rdata_valid),
+        .pixel_x          (lcd_pixel_x),
+        .pixel_y          (lcd_pixel_y),
+        .pixel_fetch      (lcd_pixel_req),
+        .pixel_data       (lcd_pixel_data),
+        .pixel_data_valid (lcd_pixel_ready),
+        .irq_vblank       (ppu_irq_vblank)
     );
 
     // ---------------------------------------------------------------
@@ -274,6 +299,7 @@ module gb_top #(
         .lcd_mosi   (lcd_mosi),
         .lcd_bl     (lcd_bl),
         .pixel_data (lcd_pixel_data),
+        .pixel_ready(lcd_pixel_ready),
         .pixel_x    (lcd_pixel_x),
         .pixel_y    (lcd_pixel_y),
         .pixel_req  (lcd_pixel_req),

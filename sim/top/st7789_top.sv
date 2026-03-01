@@ -60,6 +60,7 @@ module st7789_top (
         .lcd_mosi   (lcd_mosi),
         .lcd_bl     (lcd_bl),
         .pixel_data (pixel_data),
+        .pixel_ready(1'b1),       // test pattern is always ready
         .pixel_x    (pixel_x),
         .pixel_y    (pixel_y),
         .pixel_req  (pixel_req),

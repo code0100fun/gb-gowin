@@ -4,8 +4,9 @@
 // M-cycle state machine that fetches, decodes, and executes every base
 // and CB-prefixed instruction.
 //
-// Memory model: combinational reads. The CPU presents mem_addr and
-// mem_rd; the external memory provides mem_rdata in the same cycle.
+// Memory model: The CPU presents mem_addr and mem_rd; the external
+// memory provides mem_rdata. For synchronous memory (BSRAM), the
+// mem_wait input pauses the CPU for one cycle while data is read.
 // Each clock tick = 1 M-cycle (4 T-cycles).
 //
 // Architecture: The regfile write controls are combinational (always_comb)
@@ -22,6 +23,7 @@ module cpu (
     output logic        mem_wr,
     output logic [7:0]  mem_wdata,
     input  logic [7:0]  mem_rdata,
+    input  logic        mem_wait,   // pause CPU for BSRAM read latency
 
     // Interrupt interface
     input  logic [4:0]  int_req,    // IF & IE (pre-masked pending interrupts)
@@ -1203,6 +1205,17 @@ module cpu (
                 endcase
             end
         end
+        // BSRAM wait: suppress all external writes while CPU is frozen
+        if (mem_wait) begin
+            rf_r8_we     = 1'b0;
+            rf_r16_we    = 1'b0;
+            rf_r16stk_we = 1'b0;
+            rf_flags_we  = 1'b0;
+            rf_sp_we     = 1'b0;
+            rf_pc_we     = 1'b0;
+            mem_wr       = 1'b0;
+            int_ack      = 5'b0;
+        end
     end
     // verilator lint_on CASEOVERLAP
 
@@ -1223,6 +1236,8 @@ module cpu (
             int_dispatch <= 1'b0;
             int_vec_idx  <= 3'd0;
             halt_bug     <= 1'b0;
+        end else if (mem_wait) begin
+            // BSRAM read in progress — freeze all state
         end else if (halt_mode) begin
             // Wake-up: any interrupt pending (IF & IE != 0)
             if (int_pending) begin

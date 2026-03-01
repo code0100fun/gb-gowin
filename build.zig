@@ -198,6 +198,7 @@ pub fn build(b: *std.Build) void {
         .sources = &.{
             "sim/top/ppu_top.sv",
             "rtl/ppu/ppu.sv",
+            "rtl/memory/dual_port_ram.sv",
         },
         .target = target,
         .optimize = optimize,
@@ -213,6 +214,8 @@ pub fn build(b: *std.Build) void {
         .sources = &.{
             "rtl/platform/gb_top.sv",
             "rtl/ppu/ppu.sv",
+            "rtl/memory/dual_port_ram.sv",
+            "rtl/memory/single_port_ram.sv",
             "rtl/lcd/st7789.sv",
             "rtl/io/timer.sv",
             "rtl/core/bus.sv",

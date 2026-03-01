@@ -1,22 +1,24 @@
 // Game Boy PPU — Background and Window renderer.
 //
-// Combinational pixel pipeline: for a given (pixel_x, pixel_y) from the
-// ST7789 LCD controller, fetches tile data from VRAM, decodes 2bpp pixels,
-// applies the BGP palette, and outputs RGB565.
+// VRAM (8 KB) is stored in a dual-port BSRAM: Port A for CPU read/write,
+// Port B for PPU tile fetches. Since BSRAM has synchronous reads (1-cycle
+// latency), the PPU uses a pipeline FSM to fetch tile data over multiple
+// cycles instead of the previous combinational lookup chain.
 //
-// VRAM (8 KB) lives inside this module. The CPU writes via the bus ports;
-// the PPU reads internally through combinational array lookups.
+// The ST7789 LCD controller pulses pixel_fetch when it needs a new pixel.
+// The PPU latches pixel_x/pixel_y, walks the tile fetch pipeline (4 cycles
+// for BG only, 7 cycles for BG + window), then asserts pixel_data_valid.
 //
 // Implements registers: LCDC (FF40), STAT (FF41), SCY (FF42), SCX (FF43),
 // LY (FF44), LYC (FF45), BGP (FF47), WY (FF4A), WX (FF4B).
 //
 // Simplified timing: LY tracks pixel_y from the display controller.
-// Accurate mode transitions and STAT interrupts come in Tutorial 15.
+// Accurate mode transitions and STAT interrupts come in a later tutorial.
 module ppu (
     input  logic        clk,
     input  logic        reset,
 
-    // CPU VRAM access (from bus)
+    // CPU VRAM access (from bus) — dual_port_ram Port A
     input  logic [12:0] cpu_vram_addr,
     input  logic        cpu_vram_cs,
     input  logic        cpu_vram_we,
@@ -35,26 +37,34 @@ module ppu (
     // Pixel interface (from/to ST7789 controller)
     input  logic [7:0]  pixel_x,
     input  logic [7:0]  pixel_y,
+    input  logic        pixel_fetch,      // pulse: start tile fetch pipeline
     output logic [15:0] pixel_data,
+    output logic        pixel_data_valid, // level: pixel_data is ready
 
     // Interrupts
     output logic        irq_vblank
 );
 
     // -----------------------------------------------------------------
-    // VRAM — 8 KB array, combinational reads, synchronous writes
+    // VRAM — 8 KB dual-port BSRAM
+    // Port A: CPU read/write (synchronous)
+    // Port B: PPU pipeline read-only (synchronous)
     // -----------------------------------------------------------------
-    logic [7:0] vram [0:8191];
-    initial for (int i = 0; i < 8192; i++) vram[i] = 8'h00;
+    logic [12:0] ppu_vram_addr;
+    logic [7:0]  ppu_vram_rdata;
 
-    // CPU read port (combinational)
-    assign cpu_vram_rdata = vram[cpu_vram_addr];
-
-    // CPU write port (synchronous)
-    always_ff @(posedge clk) begin
-        if (cpu_vram_cs && cpu_vram_we)
-            vram[cpu_vram_addr] <= cpu_vram_wdata;
-    end
+    dual_port_ram #(.ADDR_WIDTH(13), .DATA_WIDTH(8)) u_vram (
+        .clk_a  (clk),
+        .we_a   (cpu_vram_cs && cpu_vram_we),
+        .addr_a (cpu_vram_addr),
+        .wdata_a(cpu_vram_wdata),
+        .rdata_a(cpu_vram_rdata),
+        .clk_b  (clk),
+        .we_b   (1'b0),
+        .addr_b (ppu_vram_addr),
+        .wdata_b(8'd0),
+        .rdata_b(ppu_vram_rdata)
+    );
 
     // -----------------------------------------------------------------
     // PPU registers
@@ -75,12 +85,12 @@ module ppu (
         reg_scy  = 8'h00;
         reg_scx  = 8'h00;
         reg_lyc  = 8'h00;
-        reg_bgp  = 8'hFC;  // default palette: 3,3,2,0 → shades 11,10,01,00
+        reg_bgp  = 8'hFC;  // default palette: 3,3,2,0 -> shades 11,10,01,00
         reg_wy   = 8'h00;
         reg_wx   = 8'h00;
     end
 
-    // LY = pixel_y (simplified — accurate timing in Tutorial 15)
+    // LY = pixel_y (simplified -- accurate timing in a later tutorial)
     wire [7:0] ly = pixel_y;
 
     // STAT register: bits [1:0] = mode (always 3 for now), bit 2 = LY==LYC
@@ -134,8 +144,6 @@ module ppu (
     // -----------------------------------------------------------------
     // Window line counter
     // -----------------------------------------------------------------
-    // The window has its own internal line counter that only increments
-    // when the window was visible on a completed scanline.
     logic [7:0] win_line;
     logic [7:0] prev_pixel_y;
 
@@ -144,7 +152,6 @@ module ppu (
         prev_pixel_y = 8'd0;
     end
 
-    // Detect scanline transitions and frame start
     always_ff @(posedge clk) begin
         if (reset) begin
             win_line     <= 8'd0;
@@ -158,7 +165,6 @@ module ppu (
             end
             // Scanline transition: pixel_y incremented
             else if (pixel_y != prev_pixel_y && pixel_y != 8'd0) begin
-                // If window was active on the previous scanline
                 if (reg_lcdc[5] && prev_pixel_y >= reg_wy && reg_wx <= 8'd166) begin
                     win_line <= win_line + 8'd1;
                 end
@@ -167,7 +173,7 @@ module ppu (
     end
 
     // -----------------------------------------------------------------
-    // VBlank IRQ — pulse when frame completes (pixel_y: 143 → 0)
+    // VBlank IRQ -- pulse when frame completes (pixel_y: 143 -> 0)
     // -----------------------------------------------------------------
     logic prev_vblank;
     initial prev_vblank = 1'b0;
@@ -179,22 +185,19 @@ module ppu (
             prev_vblank <= (pixel_y == 8'd0 && prev_pixel_y != 8'd0);
     end
 
-    // Single-cycle pulse
     assign irq_vblank = (pixel_y == 8'd0 && prev_pixel_y != 8'd0) && !prev_vblank;
 
     // -----------------------------------------------------------------
-    // Combinational pixel pipeline
-    // -----------------------------------------------------------------
-
     // LCDC bit aliases
-    wire lcd_on     = reg_lcdc[7];
-    wire win_map_hi = reg_lcdc[6]; // 0 = 9800, 1 = 9C00
-    wire win_enable = reg_lcdc[5];
+    // -----------------------------------------------------------------
+    wire lcd_on        = reg_lcdc[7];
+    wire win_map_hi    = reg_lcdc[6]; // 0 = 9800, 1 = 9C00
+    wire win_enable    = reg_lcdc[5];
     wire tile_data_sel = reg_lcdc[4]; // 0 = 8800/signed, 1 = 8000/unsigned
-    wire bg_map_hi  = reg_lcdc[3]; // 0 = 9800, 1 = 9C00
-    wire bg_enable  = reg_lcdc[0];
+    wire bg_map_hi     = reg_lcdc[3]; // 0 = 9800, 1 = 9C00
+    wire bg_enable     = reg_lcdc[0];
 
-    // DMG shade → RGB565 lookup
+    // DMG shade -> RGB565 lookup
     function logic [15:0] shade_to_rgb565(logic [1:0] shade);
         case (shade)
             2'd0: shade_to_rgb565 = 16'hFFFF; // white
@@ -211,54 +214,191 @@ module ppu (
             tile_data_addr = {1'b0, tile_idx, row, 1'b0};
         end else begin
             // Signed mode (LCDC.4=0): base 0x1000, tile_idx is signed
-            // 0x1000 + signed(tile_idx) * 16 + row * 2
             tile_data_addr = 13'h1000 + {tile_idx[7], tile_idx, row, 1'b0};
         end
     endfunction
 
-    // Background pixel calculation
-    wire [7:0] bg_y = pixel_y + reg_scy;
-    wire [7:0] bg_x = pixel_x + reg_scx;
-    wire [12:0] bg_map_addr = (bg_map_hi ? 13'h1C00 : 13'h1800)
-                             + {3'b000, bg_y[7:3], bg_x[7:3]};
-    wire [7:0] bg_tile_idx = vram[bg_map_addr];
-    wire [12:0] bg_data_base = tile_data_addr(bg_tile_idx, bg_y[2:0]);
-    wire [7:0] bg_tile_lo = vram[bg_data_base];
-    wire [7:0] bg_tile_hi = vram[bg_data_base + 13'd1];
-    wire [2:0] bg_bit_pos = 3'd7 - bg_x[2:0];
-    wire [1:0] bg_color_id = {bg_tile_hi[bg_bit_pos], bg_tile_lo[bg_bit_pos]};
-    wire [1:0] bg_shade = reg_bgp[bg_color_id * 2 +: 2];
+    // -----------------------------------------------------------------
+    // Tile fetch pipeline FSM
+    // -----------------------------------------------------------------
+    // BSRAM has 1-cycle read latency: set address in cycle N, data
+    // available in cycle N+1. The FSM walks through tile map and tile
+    // data reads for BG (3 reads = 4 cycles) and optionally window
+    // (3 more reads = 7 cycles total).
+    //
+    // ppu_vram_addr is driven COMBINATIONALLY from the FSM state and
+    // ppu_vram_rdata (which is a registered BSRAM output — no loop).
 
-    // Window pixel calculation
-    wire win_active = win_enable
-                   && (pixel_y >= reg_wy)
-                   && (pixel_x + 8'd7 >= reg_wx);
-    wire [7:0] win_x = pixel_x + 8'd7 - reg_wx;
-    wire [7:0] win_y = win_line;
-    wire [12:0] win_map_addr = (win_map_hi ? 13'h1C00 : 13'h1800)
-                              + {3'b000, win_y[7:3], win_x[7:3]};
-    wire [7:0] win_tile_idx = vram[win_map_addr];
-    wire [12:0] win_data_base = tile_data_addr(win_tile_idx, win_y[2:0]);
-    wire [7:0] win_tile_lo = vram[win_data_base];
-    wire [7:0] win_tile_hi = vram[win_data_base + 13'd1];
-    wire [2:0] win_bit_pos = 3'd7 - win_x[2:0];
-    wire [1:0] win_color_id = {win_tile_hi[win_bit_pos], win_tile_lo[win_bit_pos]};
-    wire [1:0] win_shade = reg_bgp[win_color_id * 2 +: 2];
+    typedef enum logic [2:0] {
+        PX_IDLE,
+        PX_BG_MAP,
+        PX_BG_LO,
+        PX_BG_HI,
+        PX_WIN_MAP,
+        PX_WIN_LO,
+        PX_WIN_HI,
+        PX_DONE
+    } px_state_t;
 
-    // Final pixel output
+    px_state_t px_state;
+
+    // Latched pixel coordinates (frozen when pipeline starts)
+    logic [7:0] px_x, px_y;
+
+    // Pipeline intermediate values
+    logic [7:0]  px_bg_tile_idx;
+    logic [12:0] px_bg_data_base;
+    logic [7:0]  px_bg_tile_lo;
+
+    logic [7:0]  px_win_tile_idx;
+    logic [12:0] px_win_data_base;
+    logic [7:0]  px_win_tile_lo;
+
+    // Whether window is active for this pixel (latched)
+    logic px_win_active;
+
+    initial begin
+        px_state         = PX_IDLE;
+        pixel_data       = 16'hFFFF;
+        pixel_data_valid = 1'b0;
+    end
+
+    // Derived values from latched coordinates (used mid-pipeline)
+    wire [7:0]  pipe_bg_x = px_x + reg_scx;
+    wire [7:0]  pipe_bg_y = px_y + reg_scy;
+
+    wire [7:0]  pipe_win_x = px_x + 8'd7 - reg_wx;
+    wire [7:0]  pipe_win_y = win_line;
+    wire [12:0] pipe_win_map_addr = (win_map_hi ? 13'h1C00 : 13'h1800)
+                                   + {3'b000, pipe_win_y[7:3], pipe_win_x[7:3]};
+
+    // BG map address from raw pixel inputs (used in IDLE/DONE to pre-load BSRAM)
+    wire [7:0]  fetch_bg_x = pixel_x + reg_scx;
+    wire [7:0]  fetch_bg_y = pixel_y + reg_scy;
+    wire [12:0] fetch_bg_map_addr = (bg_map_hi ? 13'h1C00 : 13'h1800)
+                                   + {3'b000, fetch_bg_y[7:3], fetch_bg_x[7:3]};
+
+    // Combinational VRAM address mux — driven by FSM state.
+    // IDLE/DONE use raw pixel inputs to pre-load the bg map entry;
+    // mid-pipeline states use latched coordinates and BSRAM read data.
     always_comb begin
-        if (!lcd_on) begin
-            // LCD off — white screen
-            pixel_data = 16'hFFFF;
-        end else if (!bg_enable) begin
-            // BG disabled — white (DMG behavior)
-            pixel_data = 16'hFFFF;
-        end else if (win_active) begin
-            // Window overrides background
-            pixel_data = shade_to_rgb565(win_shade);
+        case (px_state)
+            PX_IDLE:    ppu_vram_addr = fetch_bg_map_addr;
+            PX_BG_MAP:  ppu_vram_addr = tile_data_addr(ppu_vram_rdata, pipe_bg_y[2:0]);
+            PX_BG_LO:   ppu_vram_addr = px_bg_data_base + 13'd1;
+            PX_BG_HI:   ppu_vram_addr = pipe_win_map_addr;
+            PX_WIN_MAP: ppu_vram_addr = tile_data_addr(ppu_vram_rdata, pipe_win_y[2:0]);
+            PX_WIN_LO:  ppu_vram_addr = px_win_data_base + 13'd1;
+            PX_DONE:    ppu_vram_addr = fetch_bg_map_addr;
+            default:     ppu_vram_addr = 13'd0;
+        endcase
+    end
+
+    // Combinational pixel decode — used by FSM to register pixel_data.
+    // In PX_BG_HI: ppu_vram_rdata = bg tile hi, px_bg_tile_lo = bg tile lo
+    // In PX_WIN_HI: ppu_vram_rdata = win tile hi, px_win_tile_lo = win tile lo
+    wire [2:0] bg_bit_pos    = 3'd7 - pipe_bg_x[2:0];
+    wire [1:0] bg_color_id   = {ppu_vram_rdata[bg_bit_pos], px_bg_tile_lo[bg_bit_pos]};
+    wire [1:0] bg_shade      = reg_bgp[bg_color_id * 2 +: 2];
+    wire [15:0] bg_rgb565    = shade_to_rgb565(bg_shade);
+
+    wire [2:0] win_bit_pos   = 3'd7 - pipe_win_x[2:0];
+    wire [1:0] win_color_id  = {ppu_vram_rdata[win_bit_pos], px_win_tile_lo[win_bit_pos]};
+    wire [1:0] win_shade     = reg_bgp[win_color_id * 2 +: 2];
+    wire [15:0] win_rgb565   = shade_to_rgb565(win_shade);
+
+    // Pipeline FSM
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            px_state         <= PX_IDLE;
+            pixel_data       <= 16'hFFFF;
+            pixel_data_valid <= 1'b0;
         end else begin
-            // Background
-            pixel_data = shade_to_rgb565(bg_shade);
+            case (px_state)
+                PX_IDLE: begin
+                    if (pixel_fetch) begin
+                        px_x <= pixel_x;
+                        px_y <= pixel_y;
+                        px_win_active <= win_enable
+                                      && (pixel_y >= reg_wy)
+                                      && (pixel_x + 8'd7 >= reg_wx);
+                        pixel_data_valid <= 1'b0;
+                        // ppu_vram_addr = bg_map_addr (combinational)
+                        px_state <= PX_BG_MAP;
+                    end
+                end
+
+                PX_BG_MAP: begin
+                    // rdata_b has bg tile index
+                    px_bg_tile_idx <= ppu_vram_rdata;
+                    px_bg_data_base <= tile_data_addr(ppu_vram_rdata, pipe_bg_y[2:0]);
+                    // ppu_vram_addr = tile_data_lo (combinational)
+                    px_state <= PX_BG_LO;
+                end
+
+                PX_BG_LO: begin
+                    // rdata_b has bg tile low byte
+                    px_bg_tile_lo <= ppu_vram_rdata;
+                    // ppu_vram_addr = tile_data_hi (combinational, uses px_bg_data_base)
+                    px_state <= PX_BG_HI;
+                end
+
+                PX_BG_HI: begin
+                    // rdata_b has bg tile high byte — compute BG pixel
+                    if (!lcd_on || !bg_enable) begin
+                        // LCD off or BG disabled
+                        pixel_data <= 16'hFFFF;
+                        pixel_data_valid <= 1'b1;
+                        px_state <= PX_DONE;
+                    end else if (px_win_active) begin
+                        // Need window data — save BG result and start window fetch
+                        // ppu_vram_addr = win_map_addr (combinational)
+                        px_state <= PX_WIN_MAP;
+                    end else begin
+                        // BG only — compute final pixel
+                        pixel_data <= bg_rgb565;
+                        pixel_data_valid <= 1'b1;
+                        px_state <= PX_DONE;
+                    end
+                end
+
+                PX_WIN_MAP: begin
+                    // rdata_b has window tile index
+                    px_win_tile_idx <= ppu_vram_rdata;
+                    px_win_data_base <= tile_data_addr(ppu_vram_rdata, pipe_win_y[2:0]);
+                    // ppu_vram_addr = win tile_data_lo (combinational)
+                    px_state <= PX_WIN_LO;
+                end
+
+                PX_WIN_LO: begin
+                    // rdata_b has window tile low byte
+                    px_win_tile_lo <= ppu_vram_rdata;
+                    // ppu_vram_addr = win tile_data_hi (combinational)
+                    px_state <= PX_WIN_HI;
+                end
+
+                PX_WIN_HI: begin
+                    // rdata_b has window tile high byte — compute window pixel
+                    pixel_data <= win_rgb565;
+                    pixel_data_valid <= 1'b1;
+                    px_state <= PX_DONE;
+                end
+
+                PX_DONE: begin
+                    // Hold pixel_data valid until next fetch
+                    if (pixel_fetch) begin
+                        px_x <= pixel_x;
+                        px_y <= pixel_y;
+                        px_win_active <= win_enable
+                                      && (pixel_y >= reg_wy)
+                                      && (pixel_x + 8'd7 >= reg_wx);
+                        pixel_data_valid <= 1'b0;
+                        px_state <= PX_BG_MAP;
+                    end
+                end
+
+                default: px_state <= PX_IDLE;
+            endcase
         end
     end
 

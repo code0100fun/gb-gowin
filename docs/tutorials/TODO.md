@@ -43,7 +43,7 @@ descriptions of scope and goals.
   logic. Five interrupt sources (VBlank, STAT, Timer, Serial, Joypad) wired
   as active-high request lines.
 
-## Peripherals (11–17)
+## Peripherals (11–18)
 
 - [x] **11 — Timer**: DIV register (FF04) free-running at 16384 Hz. TIMA/TMA/TAC
   (FF05–FF07) programmable timer with four selectable frequencies. Timer
@@ -57,45 +57,48 @@ descriptions of scope and goals.
   rendering. VRAM (8000–9FFF), tile data/map addressing, SCX/SCY scrolling.
   Window layer (WX/WY). LCDC register for master enable/tile select. Output
   to the ST7789 framebuffer.
-- [ ] **14 — PPU: Sprites**: OAM (FE00–FE9F) with 40 sprite entries. Sprite
+- [x] **14 — BSRAM Memory**: Migrate VRAM and WRAM from distributed RAM to
+  BSRAM for FPGA resource efficiency. CPU wait states for synchronous read
+  latency, PPU tile-fetch pipeline FSM, ST7789 pixel_ready handshake.
+- [ ] **15 — PPU: Sprites**: OAM (FE00–FE9F) with 40 sprite entries. Sprite
   priority, 10-per-line limit, 8×8 and 8×16 modes. OBP0/OBP1 palettes.
   Sprite pixels mixed into the background FIFO.
-- [ ] **15 — PPU: Timing and STAT**: Accurate mode transitions (OAM scan →
+- [ ] **16 — PPU: Timing and STAT**: Accurate mode transitions (OAM scan →
   pixel transfer → HBlank → VBlank). LY/LYC comparison, STAT interrupt
   sources. Correct cycle timing so real games don't glitch.
-- [ ] **16 — Joypad Input**: 8 pushbuttons on breadboard GPIO mapped to the
+- [ ] **17 — Joypad Input**: 8 pushbuttons on breadboard GPIO mapped to the
   JOYP register (FF00). Column/row multiplexing matching the original Game
   Boy matrix. Debouncing. Joypad interrupt on button press.
-- [ ] **17 — Serial Port**: Minimal serial (link cable) implementation. SB/SC
+- [ ] **18 — Serial Port**: Minimal serial (link cable) implementation. SB/SC
   registers (FF01–FF02). Internal clock mode for single-player games that
   check serial. Serial interrupt.
 
-## Cartridge and External Memory (18–20)
+## Cartridge and External Memory (19–21)
 
-- [ ] **18 — MBC1 Mapper**: Bank switching for ROM (up to 2 MB) and optional
+- [ ] **19 — MBC1 Mapper**: Bank switching for ROM (up to 2 MB) and optional
   RAM (up to 32 KB). Register writes at 0000–7FFF to control bank select.
   Mode 0 (ROM banking) and Mode 1 (RAM banking). Enough to run most classic
   titles.
-- [ ] **19 — SD Card ROM Loading**: SPI SD card reader. FAT32 file listing on
+- [ ] **20 — SD Card ROM Loading**: SPI SD card reader. FAT32 file listing on
   the ST7789 display with joypad selection. Load a .gb ROM from SD into
   SDRAM. Replace the BRAM boot ROM with a proper boot menu.
-- [ ] **20 — SDRAM Controller**: Interface to the Tang Nano 20K's on-board
+- [ ] **21 — SDRAM Controller**: Interface to the Tang Nano 20K's on-board
   HY57V641620F 64Mbit SDRAM. Initialization sequence, read/write burst
   timing, refresh. Map cartridge ROM and external RAM through SDRAM for
   games larger than BRAM allows.
 
-## Audio (21)
+## Audio (22)
 
-- [ ] **21 — Audio (Channels 1–4)**: Square wave channels 1–2 (with sweep on
+- [ ] **22 — Audio (Channels 1–4)**: Square wave channels 1–2 (with sweep on
   ch1), wave channel 3 (custom waveform), noise channel 4 (LFSR). NR1x–NR5x
   registers. Channel mixing into a single output. PWM DAC on a GPIO pin.
 
-## System Integration (22–23)
+## System Integration (23–24)
 
-- [ ] **22 — DMA and System Polish**: OAM DMA (FF46) transferring 160 bytes in
+- [ ] **23 — DMA and System Polish**: OAM DMA (FF46) transferring 160 bytes in
   160 M-cycles with bus conflict handling. Remaining I/O register stubs.
   Edge cases and accuracy fixes found during game testing.
-- [ ] **23 — Running Real Games**: End-to-end testing with Tetris, Dr. Mario,
+- [ ] **24 — Running Real Games**: End-to-end testing with Tetris, Dr. Mario,
   and other DMG titles. Debugging workflow for when games break. Performance
   profiling and FPGA resource usage. Where to go next (GBC, link cable,
   save states).

@@ -230,11 +230,12 @@ mise run synth -- gb_top
 ## Resource Notes
 
 The 8 KB VRAM is currently implemented as a plain array, which synthesizes
-to distributed RAM (RAM16SDP4 primitives). This works but uses significant
-LUT resources. A later tutorial will move VRAM to BSRAM for a much more
-efficient implementation.
+to distributed RAM (RAM16SDP4 primitives). This works for simulation but
+overflows the Tang Nano 20K's LUT budget (127% LUT4, 160% RAM16SDP4).
+Tutorial 14 migrates VRAM and WRAM to BSRAM to fix this.
 
 ## What's Next
 
-Tutorial 14 adds sprites: OAM (FE00–FE9F) with 40 sprite entries, sprite
-priority, 10-per-line limit, and sprite pixel mixing with the background.
+Tutorial 14 migrates VRAM and WRAM from distributed RAM to BSRAM, adding
+CPU wait states, a PPU tile-fetch pipeline, and an ST7789 handshake to
+handle the 1-cycle synchronous read latency.

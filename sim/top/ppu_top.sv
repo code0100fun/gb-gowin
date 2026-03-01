@@ -1,8 +1,8 @@
 // Simulation wrapper for the PPU — standalone with direct VRAM/register access.
 //
 // The testbench preloads VRAM with tile data and tile maps, sets PPU
-// registers, then drives pixel coordinates to verify pixel output.
-// No CPU needed — all access is direct through the wrapper ports.
+// registers, then drives pixel_fetch to trigger the tile-fetch pipeline
+// and waits for pixel_data_valid before reading pixel_data.
 module ppu_top (
     input  logic        clk,
     input  logic        reset,
@@ -19,10 +19,12 @@ module ppu_top (
     input  logic [7:0]  io_wdata,
     output logic [7:0]  io_rdata,
 
-    // Pixel interface (testbench drives x/y, reads pixel_data)
+    // Pixel interface (testbench drives x/y and pixel_fetch)
     input  logic [7:0]  pixel_x,
     input  logic [7:0]  pixel_y,
+    input  logic        pixel_fetch,
     output logic [15:0] pixel_data,
+    output logic        pixel_data_valid,
 
     // Debug outputs
     output logic [7:0]  dbg_lcdc,
@@ -42,7 +44,7 @@ module ppu_top (
         .clk            (clk),
         .reset          (reset),
 
-        // VRAM: testbench drives directly
+        // VRAM: testbench drives directly (Port A of dual_port_ram)
         .cpu_vram_addr  (vram_addr),
         .cpu_vram_cs    (1'b1),        // always selected
         .cpu_vram_we    (vram_wr),
@@ -59,17 +61,18 @@ module ppu_top (
         .io_rdata_valid (io_rdata_valid),
 
         // Pixel interface
-        .pixel_x        (pixel_x),
-        .pixel_y        (pixel_y),
-        .pixel_data     (pixel_data),
+        .pixel_x          (pixel_x),
+        .pixel_y          (pixel_y),
+        .pixel_fetch      (pixel_fetch),
+        .pixel_data       (pixel_data),
+        .pixel_data_valid (pixel_data_valid),
 
         // Interrupts
         .irq_vblank     (dbg_irq_vblank)
     );
 
     // Debug: read registers back via io bus
-    // (The testbench can read by setting io_addr and checking io_rdata)
-    assign dbg_lcdc = 8'h00; // placeholder — read via io_rdata
+    assign dbg_lcdc = 8'h00;
     assign dbg_scy  = 8'h00;
     assign dbg_scx  = 8'h00;
     assign dbg_bgp  = 8'h00;

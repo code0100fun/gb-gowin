@@ -24,7 +24,7 @@ set -e
 TOP="${1:-blinky}"
 case "$TOP" in
     blinky)    SV_FILES="rtl/platform/blinky.sv" ;;
-    gb_top)    SV_FILES="rtl/platform/gb_top.sv rtl/ppu/ppu.sv rtl/lcd/st7789.sv rtl/io/timer.sv rtl/core/bus.sv rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv" ;;
+    gb_top)    SV_FILES="rtl/platform/gb_top.sv rtl/ppu/ppu.sv rtl/memory/dual_port_ram.sv rtl/memory/single_port_ram.sv rtl/lcd/st7789.sv rtl/io/timer.sv rtl/core/bus.sv rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv" ;;
     *)         echo "Unknown top module: $TOP (available: blinky, gb_top)"; exit 1 ;;
 esac
 mkdir -p "$BUILD_DIR"
