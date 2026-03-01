@@ -53,7 +53,7 @@ descriptions of scope and goals.
   on-board 240×240 ST7789 display. Initialization sequence, pixel streaming
   from a framebuffer, 160×144 centered with border. Directly driven from a
   simple test pattern before the PPU exists.
-- [ ] **13 — PPU: Background and Window**: Pixel FIFO for background tile
+- [x] **13 — PPU: Background and Window**: Pixel FIFO for background tile
   rendering. VRAM (8000–9FFF), tile data/map addressing, SCX/SCY scrolling.
   Window layer (WX/WY). LCDC register for master enable/tile select. Output
   to the ST7789 framebuffer.

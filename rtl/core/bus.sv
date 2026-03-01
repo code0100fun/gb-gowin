@@ -6,7 +6,7 @@
 //
 // Memory map (active regions this tutorial):
 //   0000-7FFF  ROM (32 KB)        — active
-//   8000-9FFF  VRAM (8 KB)        — stub (returns FF)
+//   8000-9FFF  VRAM (8 KB)        — active
 //   A000-BFFF  External RAM       — stub (returns FF)
 //   C000-DFFF  WRAM (8 KB)        — active
 //   E000-FDFF  Echo RAM           — mirrors WRAM
@@ -50,6 +50,13 @@ module bus (
     output logic [7:0]  io_wdata,
     input  logic [7:0]  io_rdata,
 
+    // VRAM (8000-9FFF)
+    output logic [12:0] vram_addr,
+    output logic        vram_cs,
+    output logic        vram_we,
+    output logic [7:0]  vram_wdata,
+    input  logic [7:0]  vram_rdata,
+
     // IE register (FFFF)
     output logic        ie_cs,
     output logic        ie_we,
@@ -58,6 +65,7 @@ module bus (
 );
 
     // Write data is always the CPU's write data, regardless of device
+    assign vram_wdata = cpu_wdata;
     assign wram_wdata = cpu_wdata;
     assign hram_wdata = cpu_wdata;
     assign io_wdata   = cpu_wdata;
@@ -66,16 +74,19 @@ module bus (
     always_comb begin
         // Defaults: nothing selected, open bus
         rom_cs   = 1'b0;
+        vram_cs  = 1'b0;
         wram_cs  = 1'b0;
         hram_cs  = 1'b0;
         io_cs    = 1'b0;
         ie_cs    = 1'b0;
 
         rom_addr  = cpu_addr[14:0];
+        vram_addr = cpu_addr[12:0];
         wram_addr = cpu_addr[12:0];
         hram_addr = cpu_addr[6:0];
         io_addr   = cpu_addr[6:0];
 
+        vram_we = 1'b0;
         wram_we = 1'b0;
         hram_we = 1'b0;
         io_rd   = 1'b0;
@@ -93,9 +104,12 @@ module bus (
                 cpu_rdata = rom_rdata;
             end
 
-            // VRAM: 8000-9FFF (stub)
+            // VRAM: 8000-9FFF
             16'b100?_????_????_????: begin
-                cpu_rdata = 8'hFF;
+                vram_cs   = 1'b1;
+                vram_addr = cpu_addr[12:0];
+                vram_we   = cpu_wr;
+                cpu_rdata = vram_rdata;
             end
 
             // External RAM: A000-BFFF (stub)

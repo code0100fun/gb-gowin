@@ -24,7 +24,7 @@ set -e
 TOP="${1:-blinky}"
 case "$TOP" in
     blinky)    SV_FILES="rtl/platform/blinky.sv" ;;
-    gb_top)    SV_FILES="rtl/platform/gb_top.sv rtl/lcd/st7789.sv rtl/io/timer.sv rtl/core/bus.sv rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv" ;;
+    gb_top)    SV_FILES="rtl/platform/gb_top.sv rtl/ppu/ppu.sv rtl/lcd/st7789.sv rtl/io/timer.sv rtl/core/bus.sv rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv" ;;
     *)         echo "Unknown top module: $TOP (available: blinky, gb_top)"; exit 1 ;;
 esac
 mkdir -p "$BUILD_DIR"
@@ -122,6 +122,10 @@ run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:timer"
 [tasks."test:st7789"]
 description = "Run ST7789 LCD driver testbench"
 run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:st7789"
+
+[tasks."test:ppu"]
+description = "Run PPU testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:ppu"
 
 [tasks."test:gb_top"]
 description = "Run FPGA top-level testbench"

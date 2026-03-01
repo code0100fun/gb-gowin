@@ -9,6 +9,7 @@ fn probe(dut: *bus.Model, addr: u16) void {
     dut.set(.cpu_wr, 0);
     dut.set(.cpu_wdata, 0);
     dut.set(.rom_rdata, 0xAA);
+    dut.set(.vram_rdata, 0x77);
     dut.set(.wram_rdata, 0xBB);
     dut.set(.hram_rdata, 0xCC);
     dut.set(.io_rdata, 0xDD);
@@ -49,17 +50,29 @@ test "ROM at 0x4000" {
     try std.testing.expectEqual(@as(u64, 0x4000), dut.get(.rom_addr));
 }
 
-test "VRAM stub" {
+test "VRAM at 0x8000" {
     var dut = try bus.Model.init(.{});
     defer dut.deinit();
 
     probe(&dut, 0x8000);
+    try std.testing.expect(dut.get(.vram_cs) != 0);
     try std.testing.expect(dut.get(.rom_cs) == 0);
     try std.testing.expect(dut.get(.wram_cs) == 0);
     try std.testing.expect(dut.get(.hram_cs) == 0);
     try std.testing.expect(dut.get(.io_cs) == 0);
     try std.testing.expect(dut.get(.ie_cs) == 0);
-    try std.testing.expectEqual(@as(u64, 0xFF), dut.get(.cpu_rdata));
+    try std.testing.expectEqual(@as(u64, 0x0000), dut.get(.vram_addr));
+    try std.testing.expectEqual(@as(u64, 0x77), dut.get(.cpu_rdata));
+}
+
+test "VRAM at 0x9FFF" {
+    var dut = try bus.Model.init(.{});
+    defer dut.deinit();
+
+    probe(&dut, 0x9FFF);
+    try std.testing.expect(dut.get(.vram_cs) != 0);
+    try std.testing.expectEqual(@as(u64, 0x1FFF), dut.get(.vram_addr));
+    try std.testing.expectEqual(@as(u64, 0x77), dut.get(.cpu_rdata));
 }
 
 test "ExtRAM stub" {

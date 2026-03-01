@@ -193,10 +193,26 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const ppu_mod = verilator.addModel(b, .{
+        .name = "ppu_top",
+        .sources = &.{
+            "sim/top/ppu_top.sv",
+            "rtl/ppu/ppu.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+        },
+    });
+
     const gb_top_mod = verilator.addModel(b, .{
         .name = "gb_top",
         .sources = &.{
             "rtl/platform/gb_top.sv",
+            "rtl/ppu/ppu.sv",
             "rtl/lcd/st7789.sv",
             "rtl/io/timer.sv",
             "rtl/core/bus.sv",
@@ -236,6 +252,7 @@ pub fn build(b: *std.Build) void {
         .{ "sim/test/interrupts.zig", "int_bus_top", int_bus_mod, "test:interrupts" },
         .{ "sim/test/timer.zig", "timer_top", timer_mod, "test:timer" },
         .{ "sim/test/st7789.zig", "st7789_top", st7789_mod, "test:st7789" },
+        .{ "sim/test/ppu.zig", "ppu_top", ppu_mod, "test:ppu" },
         .{ "sim/test/gb_top.zig", "gb_top", gb_top_mod, "test:gb_top" },
     };
 

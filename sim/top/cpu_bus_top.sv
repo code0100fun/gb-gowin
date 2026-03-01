@@ -35,6 +35,10 @@ module cpu_bus_top #(
     logic        rom_cs;
     logic [7:0]  rom_rdata;
 
+    logic [12:0] vram_addr;
+    logic        vram_cs, vram_we;
+    logic [7:0]  vram_wdata, vram_rdata;
+
     logic [12:0] wram_addr;
     logic        wram_cs, wram_we;
     logic [7:0]  wram_wdata, wram_rdata;
@@ -90,6 +94,12 @@ module cpu_bus_top #(
         .rom_cs    (rom_cs),
         .rom_rdata (rom_rdata),
 
+        .vram_addr (vram_addr),
+        .vram_cs   (vram_cs),
+        .vram_we   (vram_we),
+        .vram_wdata(vram_wdata),
+        .vram_rdata(vram_rdata),
+
         .wram_addr (wram_addr),
         .wram_cs   (wram_cs),
         .wram_we   (wram_we),
@@ -127,6 +137,15 @@ module cpu_bus_top #(
             $readmemh(ROM_FILE, rom_mem);
     end
     assign rom_rdata = rom_mem[rom_addr[$clog2(ROM_SIZE)-1:0]];
+
+    // VRAM (8 KB, combinational read, synchronous write)
+    logic [7:0] vram_mem [0:8191];
+    initial for (int i = 0; i < 8192; i++) vram_mem[i] = 8'h00;
+    assign vram_rdata = vram_mem[vram_addr];
+    always_ff @(posedge clk) begin
+        if (vram_cs && vram_we)
+            vram_mem[vram_addr] <= vram_wdata;
+    end
 
     // WRAM (8 KB, combinational read, synchronous write)
     logic [7:0] wram_mem [0:8191];

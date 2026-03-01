@@ -42,6 +42,10 @@ module gb_top #(
     logic        rom_cs;
     logic [7:0]  rom_rdata;
 
+    logic [12:0] vram_addr;
+    logic        vram_cs, vram_we;
+    logic [7:0]  vram_wdata, vram_rdata;
+
     logic [12:0] wram_addr;
     logic        wram_cs, wram_we;
     logic [7:0]  wram_wdata, wram_rdata;
@@ -94,6 +98,8 @@ module gb_top #(
         .cpu_wdata (cpu_wdata),
         .cpu_rdata (cpu_rdata),
         .rom_addr  (rom_addr),  .rom_cs (rom_cs),  .rom_rdata (rom_rdata),
+        .vram_addr (vram_addr), .vram_cs(vram_cs),  .vram_we   (vram_we),
+        .vram_wdata(vram_wdata),.vram_rdata(vram_rdata),
         .wram_addr (wram_addr), .wram_cs(wram_cs),  .wram_we   (wram_we),
         .wram_wdata(wram_wdata),.wram_rdata(wram_rdata),
         .hram_addr (hram_addr), .hram_cs(hram_cs),  .hram_we   (hram_we),
@@ -181,6 +187,8 @@ module gb_top #(
             if_reg <= 5'h00;
         else if (int_ack != 5'b0)
             if_reg <= if_reg & ~int_ack;
+        else if (ppu_irq_vblank)
+            if_reg <= if_reg | 5'b00001;
         else if (timer_irq)
             if_reg <= if_reg | 5'b00100;
         else if (io_cs && io_wr && io_addr == 7'h0F)
@@ -189,7 +197,9 @@ module gb_top #(
 
     // I/O read mux
     always_comb begin
-        if (timer_rdata_valid)
+        if (ppu_rdata_valid)
+            io_rdata = ppu_rdata;
+        else if (timer_rdata_valid)
             io_rdata = timer_rdata;
         else begin
             unique case (io_addr)
@@ -219,27 +229,41 @@ module gb_top #(
     assign int_req = if_reg & ie_reg[4:0];
 
     // ---------------------------------------------------------------
-    // ST7789 LCD — test pattern (no framebuffer)
+    // PPU (FF40–FF4B) — VRAM lives inside the PPU module
     // ---------------------------------------------------------------
+    logic [7:0]  ppu_rdata;
+    logic        ppu_rdata_valid;
+    logic        ppu_irq_vblank;
+
     logic [7:0]  lcd_pixel_x;
     logic [7:0]  lcd_pixel_y;
     logic [15:0] lcd_pixel_data;
     logic        lcd_pixel_req;
 
-    // Color bars: 8 vertical stripes across 160 pixels
-    always_comb begin
-        unique case (lcd_pixel_x[7:5])
-            3'd0: lcd_pixel_data = 16'hF800; // red
-            3'd1: lcd_pixel_data = 16'h07E0; // green
-            3'd2: lcd_pixel_data = 16'h001F; // blue
-            3'd3: lcd_pixel_data = 16'hFFE0; // yellow
-            3'd4: lcd_pixel_data = 16'hF81F; // magenta
-            3'd5: lcd_pixel_data = 16'h07FF; // cyan
-            3'd6: lcd_pixel_data = 16'hFFFF; // white
-            3'd7: lcd_pixel_data = 16'h0000; // black
-        endcase
-    end
+    ppu u_ppu (
+        .clk            (clk),
+        .reset          (reset),
+        .cpu_vram_addr  (vram_addr),
+        .cpu_vram_cs    (vram_cs),
+        .cpu_vram_we    (vram_we),
+        .cpu_vram_wdata (vram_wdata),
+        .cpu_vram_rdata (vram_rdata),
+        .io_cs          (io_cs),
+        .io_addr        (io_addr),
+        .io_wr          (io_wr),
+        .io_rd          (io_rd),
+        .io_wdata       (io_wdata),
+        .io_rdata       (ppu_rdata),
+        .io_rdata_valid (ppu_rdata_valid),
+        .pixel_x        (lcd_pixel_x),
+        .pixel_y        (lcd_pixel_y),
+        .pixel_data     (lcd_pixel_data),
+        .irq_vblank     (ppu_irq_vblank)
+    );
 
+    // ---------------------------------------------------------------
+    // ST7789 LCD — driven by PPU pixel output
+    // ---------------------------------------------------------------
     st7789 u_lcd (
         .clk        (clk),
         .reset      (reset),

@@ -40,6 +40,10 @@ module timer_top #(
     logic        rom_cs;
     logic [7:0]  rom_rdata;
 
+    logic [12:0] vram_addr;
+    logic        vram_cs, vram_we;
+    logic [7:0]  vram_wdata, vram_rdata;
+
     logic [12:0] wram_addr;
     logic        wram_cs, wram_we;
     logic [7:0]  wram_wdata, wram_rdata;
@@ -100,6 +104,12 @@ module timer_top #(
         .rom_cs    (rom_cs),
         .rom_rdata (rom_rdata),
 
+        .vram_addr (vram_addr),
+        .vram_cs   (vram_cs),
+        .vram_we   (vram_we),
+        .vram_wdata(vram_wdata),
+        .vram_rdata(vram_rdata),
+
         .wram_addr (wram_addr),
         .wram_cs   (wram_cs),
         .wram_we   (wram_we),
@@ -128,6 +138,15 @@ module timer_top #(
     // ---------------------------------------------------------------
     // Memory arrays (combinational reads for simulation)
     // ---------------------------------------------------------------
+
+    // VRAM (8 KB)
+    logic [7:0] vram_mem [0:8191];
+    initial for (int i = 0; i < 8192; i++) vram_mem[i] = 8'h00;
+    assign vram_rdata = vram_mem[vram_addr];
+    always_ff @(posedge clk) begin
+        if (vram_cs && vram_we)
+            vram_mem[vram_addr] <= vram_wdata;
+    end
 
     // ROM
     logic [7:0] rom_mem [0:ROM_SIZE-1];
