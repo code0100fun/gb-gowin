@@ -3,6 +3,7 @@
 
 [tools]
 python = "3.14"
+zig = "0.15.2"
 
 [env]
 DEVICE = "GW2AR-LV18QN88C8/I7"
@@ -63,175 +64,56 @@ openFPGALoader -b "$BOARD" "$BUILD_DIR/gb.fs"
 """
 
 # ============================================================================
-# Simulation
+# Simulation (Zig + Verilator)
 # ============================================================================
 
-[tasks.sim]
-description = "Run all Verilator testbenches"
-depends = ["sim:blinky", "sim:single_port_ram", "sim:dual_port_ram", "sim:rom", "sim:regfile", "sim:alu", "sim:decoder", "sim:cpu", "sim:bus", "sim:cpu_bus", "sim:gb_top"]
+[tasks.test]
+description = "Run all Zig/Verilator testbenches"
+run = "zig build test -Dtarget=x86_64-linux-gnu.2.38 --summary all"
 
-[tasks."sim:blinky"]
-description = "Run blinky testbench"
-run = """
-#!/usr/bin/env bash
-set -e
-verilator --cc --exe --build --trace \
-    -Wall -Wno-UNUSEDSIGNAL \
-    -CFLAGS "-I$(pwd)/sim/common" \
-    -Mdir "$BUILD_DIR/sim/obj_blinky" \
-    -o tb_blinky \
-    rtl/platform/blinky.sv sim/tb/tb_blinky.cpp
-"./$BUILD_DIR/sim/obj_blinky/tb_blinky"
-"""
-
-[tasks."sim:single_port_ram"]
-description = "Run single-port RAM testbench"
-run = """
-#!/usr/bin/env bash
-set -e
-verilator --cc --exe --build --trace \
-    -Wall -Wno-UNUSEDSIGNAL \
-    -CFLAGS "-I$(pwd)/sim/common" \
-    -Mdir "$BUILD_DIR/sim/obj_single_port_ram" \
-    -o tb_single_port_ram \
-    rtl/memory/single_port_ram.sv sim/tb/tb_single_port_ram.cpp
-"./$BUILD_DIR/sim/obj_single_port_ram/tb_single_port_ram"
-"""
-
-[tasks."sim:dual_port_ram"]
-description = "Run dual-port RAM testbench"
-run = """
-#!/usr/bin/env bash
-set -e
-verilator --cc --exe --build --trace \
-    -Wall -Wno-UNUSEDSIGNAL \
-    -CFLAGS "-I$(pwd)/sim/common" \
-    -Mdir "$BUILD_DIR/sim/obj_dual_port_ram" \
-    -o tb_dual_port_ram \
-    rtl/memory/dual_port_ram.sv sim/tb/tb_dual_port_ram.cpp
-"./$BUILD_DIR/sim/obj_dual_port_ram/tb_dual_port_ram"
-"""
-
-[tasks."sim:rom"]
-description = "Run ROM testbench"
-run = """
-#!/usr/bin/env bash
-set -e
-verilator --cc --exe --build --trace \
-    -Wall -Wno-UNUSEDSIGNAL \
-    -CFLAGS "-I$(pwd)/sim/common" \
-    -Mdir "$BUILD_DIR/sim/obj_rom" \
-    -o tb_rom \
-    -GADDR_WIDTH=8 -GDATA_WIDTH=8 '-GINIT_FILE="sim/data/test_rom.hex"' \
-    rtl/memory/rom.sv sim/tb/tb_rom.cpp
-"./$BUILD_DIR/sim/obj_rom/tb_rom"
-"""
-
-[tasks."sim:regfile"]
-description = "Run register file testbench"
-run = """
-#!/usr/bin/env bash
-set -e
-verilator --cc --exe --build --trace \
-    -Wall -Wno-UNUSEDSIGNAL \
-    -CFLAGS "-I$(pwd)/sim/common" \
-    -Mdir "$BUILD_DIR/sim/obj_regfile" \
-    -o tb_regfile \
-    rtl/core/cpu/regfile.sv sim/tb/tb_regfile.cpp
-"./$BUILD_DIR/sim/obj_regfile/tb_regfile"
-"""
-
-[tasks."sim:alu"]
+[tasks."test:alu"]
 description = "Run ALU testbench"
-run = """
-#!/usr/bin/env bash
-set -e
-verilator --cc --exe --build \
-    -Wall -Wno-UNUSEDSIGNAL \
-    -Mdir "$BUILD_DIR/sim/obj_alu" \
-    -o tb_alu \
-    rtl/core/cpu/alu.sv sim/tb/tb_alu.cpp
-"./$BUILD_DIR/sim/obj_alu/tb_alu"
-"""
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:alu"
 
-[tasks."sim:decoder"]
+[tasks."test:decoder"]
 description = "Run decoder testbench"
-run = """
-#!/usr/bin/env bash
-set -e
-verilator --cc --exe --build \
-    -Wall -Wno-UNUSEDSIGNAL \
-    -Mdir "$BUILD_DIR/sim/obj_decoder" \
-    -o tb_decoder \
-    rtl/core/cpu/decoder.sv sim/tb/tb_decoder.cpp
-"./$BUILD_DIR/sim/obj_decoder/tb_decoder"
-"""
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:decoder"
 
-[tasks."sim:bus"]
+[tasks."test:bus"]
 description = "Run memory bus testbench"
-run = """
-#!/usr/bin/env bash
-set -e
-verilator --cc --exe --build --trace \
-    -Wall -Wno-UNUSEDSIGNAL \
-    -CFLAGS "-I$(pwd)/sim/common" \
-    -Mdir "$BUILD_DIR/sim/obj_bus" \
-    -o tb_bus \
-    rtl/core/bus.sv sim/tb/tb_bus.cpp
-"./$BUILD_DIR/sim/obj_bus/tb_bus"
-"""
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:bus"
 
-[tasks."sim:cpu_bus"]
-description = "Run CPU+bus integration testbench"
-run = """
-#!/usr/bin/env bash
-set -e
-verilator --cc --exe --build --trace \
-    -Wall -Wno-UNUSEDSIGNAL -Wno-CASEOVERLAP -Wno-UNOPTFLAT \
-    -CFLAGS "-I$(pwd)/sim/common" \
-    -Mdir "$BUILD_DIR/sim/obj_cpu_bus" \
-    -o tb_cpu_bus \
-    -GROM_SIZE=64 '-GROM_FILE="sim/data/cpu_bus_test.hex"' \
-    sim/top/cpu_bus_top.sv rtl/core/bus.sv \
-    rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv \
-    rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv \
-    sim/tb/tb_cpu_bus.cpp
-"./$BUILD_DIR/sim/obj_cpu_bus/tb_cpu_bus"
-"""
+[tasks."test:blinky"]
+description = "Run blinky testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:blinky"
 
-[tasks."sim:gb_top"]
-description = "Run FPGA top-level testbench"
-run = """
-#!/usr/bin/env bash
-set -e
-verilator --cc --exe --build --trace \
-    -Wall -Wno-UNUSEDSIGNAL -Wno-CASEOVERLAP -Wno-UNOPTFLAT -Wno-PINCONNECTEMPTY \
-    -CFLAGS "-I$(pwd)/sim/common" \
-    -Mdir "$BUILD_DIR/sim/obj_gb_top" \
-    -o tb_gb_top \
-    -GROM_SIZE=64 '-GROM_FILE="sim/data/boot_test.hex"' \
-    rtl/platform/gb_top.sv rtl/core/bus.sv \
-    rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv \
-    rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv \
-    sim/tb/tb_gb_top.cpp
-"./$BUILD_DIR/sim/obj_gb_top/tb_gb_top"
-"""
+[tasks."test:single_port_ram"]
+description = "Run single-port RAM testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:single_port_ram"
 
-[tasks."sim:cpu"]
+[tasks."test:dual_port_ram"]
+description = "Run dual-port RAM testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:dual_port_ram"
+
+[tasks."test:rom"]
+description = "Run ROM testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:rom"
+
+[tasks."test:regfile"]
+description = "Run register file testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:regfile"
+
+[tasks."test:cpu"]
 description = "Run CPU testbench"
-run = """
-#!/usr/bin/env bash
-set -e
-verilator --cc --exe --build --trace \
-    -Wall -Wno-UNUSEDSIGNAL -Wno-CASEOVERLAP \
-    -CFLAGS "-I$(pwd)/sim/common" \
-    -Mdir "$BUILD_DIR/sim/obj_cpu" \
-    -o tb_cpu \
-    rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv \
-    rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv \
-    sim/tb/tb_cpu.cpp
-"./$BUILD_DIR/sim/obj_cpu/tb_cpu"
-"""
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:cpu"
+
+[tasks."test:cpu_bus"]
+description = "Run CPU+bus integration testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:cpu_bus"
+
+[tasks."test:gb_top"]
+description = "Run FPGA top-level testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:gb_top"
 
 # ============================================================================
 # Dependency installation

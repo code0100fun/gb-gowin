@@ -2,6 +2,7 @@
   "recommendations": [
     "lushay-labs.lushay-code",
     "mshr-h.VerilogHDL",
-    "surfer-project.surfer"
+    "surfer-project.surfer",
+    "ziglang.vscode-zig"
   ]
 }
