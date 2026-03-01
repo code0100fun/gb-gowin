@@ -21,7 +21,7 @@ your SystemVerilog into a C++ class, then you write a program that drives
 the inputs and checks the outputs.
 
 The traditional flow uses C++ testbenches, but we use a Zig wrapper library
-called [zig-verilator](../../zig-verilator/) that handles the C++ interop
+called [zig-verilator](https://github.com/code0100fun/zig-verilator) that handles the C++ interop
 automatically:
 
 ```

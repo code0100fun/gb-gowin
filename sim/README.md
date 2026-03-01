@@ -1,6 +1,6 @@
 # Simulation
 
-Verilator testbenches written in Zig using [zig-verilator](../../zig-verilator/).
+Verilator testbenches written in Zig using [zig-verilator](https://github.com/code0100fun/zig-verilator).
 
 ## Directory structure
 
