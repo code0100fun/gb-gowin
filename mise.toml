@@ -244,7 +244,7 @@ depends = ["deps:pacman", "deps:pip", "deps:nextpnr"]
 [tasks."deps:pacman"]
 description = "Install official repo packages via pacman"
 run = """
-sudo pacman -S --needed yosys verilator gtkwave openfpgaloader \
+sudo pacman -S --needed yosys verilator openfpgaloader \
   cmake boost eigen python python-pip
 """
 

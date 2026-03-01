@@ -28,8 +28,10 @@ The open-source FPGA flow for Gowin chips looks like this:
 5. **Verilator** — a fast, open-source simulator that compiles your
    SystemVerilog into C++ for simulation and testing. We'll use it for all our
    testbenches.
-6. **GTKWave** — a waveform viewer for inspecting simulation output (VCD/FST
-   files). Essential for debugging timing issues.
+6. **Surfer** — a modern waveform viewer for inspecting simulation output
+   (VCD/FST/GHW files). Essential for debugging timing issues. Available as a
+   [VSCode extension](https://marketplace.visualstudio.com/items?itemName=surfer-project.surfer)
+   or as a [standalone app](https://surfer-project.org/).
 
 ## Prerequisites
 
@@ -58,7 +60,7 @@ mise run deps
 
 This runs three sub-tasks:
 
-1. **`deps:pacman`** — installs Yosys, Verilator, GTKWave, openFPGAloader, and
+1. **`deps:pacman`** — installs Yosys, Verilator, openFPGAloader, and
    build dependencies from the official Arch repos
 2. **`deps:pip`** — installs `apycula` (provides the `gowin_pack` command)
 3. **`deps:nextpnr`** — clones nextpnr from GitHub and builds it with only the
@@ -73,7 +75,7 @@ If you prefer to run each step manually:
 
 ```bash
 # Official repo packages
-sudo pacman -S --needed yosys verilator gtkwave openfpgaloader \
+sudo pacman -S --needed yosys verilator openfpgaloader \
   cmake boost eigen python
 
 # Apicula — provides gowin_pack for bitstream generation
@@ -93,8 +95,8 @@ sudo cmake --install build
 <summary>Ubuntu / Debian</summary>
 
 ```bash
-# Yosys, Verilator, GTKWave
-sudo apt install yosys verilator gtkwave
+# Yosys, Verilator
+sudo apt install yosys verilator
 
 # nextpnr with himbaechel Gowin backend — build from source
 # See: https://github.com/YosysHQ/nextpnr (build with -DARCH=himbaechel -DHIMBAECHEL_UARCH=gowin)
@@ -144,8 +146,8 @@ openFPGALoader --detect
 verilator --version
 # Expected: Verilator 5.x
 
-gtkwave --version
-# Expected: GTKWave Analyzer v3.3.x
+surfer --version  # if using standalone app
+# Or install the VSCode extension: surfer-project.surfer
 ```
 
 ### Connecting the Tang Nano 20K
@@ -186,6 +188,16 @@ Install these two extensions:
   synthesize and flash from the editor. It also provides Verilator-based linting
   for real-time error checking as you type.
 - **Install:** Open VSCode, press `Ctrl+Shift+X`, search "Lushay Code", install.
+
+### Surfer Waveform Viewer
+
+- **Extension ID:** `surfer-project.surfer`
+- **What it does:** A modern waveform viewer that opens VCD, FST, and GHW files
+  directly in VSCode. Use it to debug simulation output without leaving the
+  editor. It auto-activates when you open a waveform file.
+- **Install:** Search "Surfer" in the extensions marketplace.
+- **Standalone:** If you're not using VSCode, download the standalone app from
+  https://surfer-project.org/
 
 ### Verilog-HDL / SystemVerilog / Bluespec
 

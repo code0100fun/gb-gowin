@@ -1,6 +1,7 @@
 {
   "recommendations": [
     "lushay-labs.lushay-code",
-    "mshr-h.VerilogHDL"
+    "mshr-h.VerilogHDL",
+    "surfer-project.surfer"
   ]
 }

@@ -8,7 +8,7 @@ anything touches the board.
 In this tutorial we'll:
 1. Build a reusable testbench helper in C++
 2. Write a Verilator testbench for our blinky module
-3. Generate and view waveforms in GTKWave
+3. Generate and view waveforms in Surfer
 4. Wire it all up so `mise run sim` runs every testbench in the project
 
 This establishes the workflow we'll use for the entire Game Boy build: **write
@@ -94,7 +94,7 @@ m_trace->open("blinky.vcd");
 ```
 
 VCD (Value Change Dump) files record every signal change. You can view them in
-GTKWave. The file can get large for long simulations — for the blinky running
+Surfer (the VSCode extension or standalone app). The file can get large for long simulations — for the blinky running
 1.7M cycles, the VCD is ~88 MB. For the Game Boy core we'll switch to FST
 format (more compact), but VCD is simpler to start with.
 
@@ -277,17 +277,16 @@ their testbenches will be picked up automatically.
 
 ## Viewing Waveforms
 
-The testbench generates `build/sim/blinky.vcd`. Open it in GTKWave:
+The testbench generates `build/sim/blinky.vcd`. Open it in Surfer:
 
-```bash
-gtkwave build/sim/blinky.vcd
-```
+- **VSCode:** Just click on `build/sim/blinky.vcd` in the file explorer — the
+  Surfer extension (`surfer-project.surfer`) opens it automatically.
+- **Standalone:** Run `surfer build/sim/blinky.vcd` from the terminal.
 
-In GTKWave:
-1. In the **Signal Search Tree** (left panel), expand `TOP > blinky`
-2. Select the signals you want: `clk`, `counter[24:0]`, `led[5:0]`, `btn_s1`
-3. Click **Append** to add them to the waveform view
-4. Use the zoom controls to see the LED toggling pattern
+In Surfer:
+1. Browse the signal hierarchy to find `TOP > blinky`
+2. Add the signals you want to inspect: `clk`, `counter[24:0]`, `led[5:0]`, `btn_s1`
+3. Use the zoom controls to see the LED toggling pattern
 
 You should see:
 - `clk` toggling every half-cycle
@@ -296,13 +295,12 @@ You should see:
   bit below it)
 - The LED pattern shifting to faster bits when `btn_s1` goes low
 
-### Pro Tips for GTKWave
+### Pro Tips for Surfer
 
-- **Zoom to fit:** Press `Ctrl+Shift+F` to see the entire simulation
-- **Zoom in:** Scroll wheel or `+`/`-` keys
-- **Radix:** Right-click a signal → Data Format → choose Hex, Decimal, or Binary
-- **Save layout:** File → Write Save File. GTKWave will remember your signal
-  selection and zoom level next time.
+- **Zoom to fit:** Press `F` to fit the entire simulation in view
+- **Zoom in/out:** Scroll wheel or `+`/`-` keys
+- **Radix:** Right-click a signal to change its display format (Hex, Decimal, Binary)
+- **Search signals:** Use the search bar to quickly filter signals by name
 
 ## A Note on VCD File Size
 
@@ -328,7 +326,7 @@ From here on, every module we build follows this cycle:
        ↓
 4. Simulate              (mise run sim)
        ↓
-5. Debug with waveforms  (gtkwave if tests fail)
+5. Debug with waveforms  (surfer if tests fail)
        ↓
 6. Synthesize and flash  (mise run flash — when hardware is relevant)
 ```
@@ -348,7 +346,7 @@ waveform shows you exactly what happened cycle-by-cycle.
    test: press S2, run 1000 cycles, verify LEDs don't change. Release S2, run
    1000 cycles, verify they do.
 
-3. **Experiment with waveforms.** Open the VCD in GTKWave and measure the exact
+3. **Experiment with waveforms.** Open the VCD in Surfer and measure the exact
    cycle count between LED transitions. Does it match your calculations from
    Tutorial 02?
 
