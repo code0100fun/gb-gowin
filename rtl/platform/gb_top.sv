@@ -9,7 +9,15 @@ module gb_top #(
     input  logic       clk,        // 27 MHz
     input  logic       btn_s1,     // reset (active low)
     input  logic       btn_s2,     // unused
-    output logic [5:0] led         // onboard LEDs (active low)
+    output logic [5:0] led,        // onboard LEDs (active low)
+
+    // ST7789 SPI LCD
+    output logic       lcd_rst,
+    output logic       lcd_cs,
+    output logic       lcd_dc,
+    output logic       lcd_sclk,
+    output logic       lcd_mosi,
+    output logic       lcd_bl
 );
 
     // ---------------------------------------------------------------
@@ -209,5 +217,43 @@ module gb_top #(
     // Interrupt request: IF & IE
     // ---------------------------------------------------------------
     assign int_req = if_reg & ie_reg[4:0];
+
+    // ---------------------------------------------------------------
+    // ST7789 LCD — test pattern (no framebuffer)
+    // ---------------------------------------------------------------
+    logic [7:0]  lcd_pixel_x;
+    logic [7:0]  lcd_pixel_y;
+    logic [15:0] lcd_pixel_data;
+    logic        lcd_pixel_req;
+
+    // Color bars: 8 vertical stripes across 160 pixels
+    always_comb begin
+        unique case (lcd_pixel_x[7:5])
+            3'd0: lcd_pixel_data = 16'hF800; // red
+            3'd1: lcd_pixel_data = 16'h07E0; // green
+            3'd2: lcd_pixel_data = 16'h001F; // blue
+            3'd3: lcd_pixel_data = 16'hFFE0; // yellow
+            3'd4: lcd_pixel_data = 16'hF81F; // magenta
+            3'd5: lcd_pixel_data = 16'h07FF; // cyan
+            3'd6: lcd_pixel_data = 16'hFFFF; // white
+            3'd7: lcd_pixel_data = 16'h0000; // black
+        endcase
+    end
+
+    st7789 u_lcd (
+        .clk        (clk),
+        .reset      (reset),
+        .lcd_rst    (lcd_rst),
+        .lcd_cs     (lcd_cs),
+        .lcd_dc     (lcd_dc),
+        .lcd_sclk   (lcd_sclk),
+        .lcd_mosi   (lcd_mosi),
+        .lcd_bl     (lcd_bl),
+        .pixel_data (lcd_pixel_data),
+        .pixel_x    (lcd_pixel_x),
+        .pixel_y    (lcd_pixel_y),
+        .pixel_req  (lcd_pixel_req),
+        .busy       ()
+    );
 
 endmodule

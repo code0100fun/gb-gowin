@@ -23,3 +23,17 @@ IO_LOC "btn_s1" 88;
 IO_LOC "btn_s2" 87;
 IO_PORT "btn_s1" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 IO_PORT "btn_s2" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// ST7789 SPI LCD (external, connected via GPIO header)
+IO_LOC "lcd_rst"  71;
+IO_LOC "lcd_cs"   72;
+IO_LOC "lcd_dc"   73;
+IO_LOC "lcd_sclk" 74;
+IO_LOC "lcd_mosi" 75;
+IO_LOC "lcd_bl"   76;
+IO_PORT "lcd_rst"  IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "lcd_cs"   IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "lcd_dc"   IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "lcd_sclk" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "lcd_mosi" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "lcd_bl"   IO_TYPE=LVCMOS33 DRIVE=8;

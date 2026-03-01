@@ -49,7 +49,7 @@ descriptions of scope and goals.
   (FF05–FF07) programmable timer with four selectable frequencies. Timer
   overflow fires the Timer interrupt. First peripheral to exercise the
   interrupt system end-to-end.
-- [ ] **12 — ST7789 LCD Driver**: SPI controller for the Tang Nano 20K's
+- [x] **12 — ST7789 LCD Driver**: SPI controller for the Tang Nano 20K's
   on-board 240×240 ST7789 display. Initialization sequence, pixel streaming
   from a framebuffer, 160×144 centered with border. Directly driven from a
   simple test pattern before the PPU exists.

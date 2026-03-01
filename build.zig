@@ -178,10 +178,26 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const st7789_mod = verilator.addModel(b, .{
+        .name = "st7789_top",
+        .sources = &.{
+            "sim/top/st7789_top.sv",
+            "rtl/lcd/st7789.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+        },
+    });
+
     const gb_top_mod = verilator.addModel(b, .{
         .name = "gb_top",
         .sources = &.{
             "rtl/platform/gb_top.sv",
+            "rtl/lcd/st7789.sv",
             "rtl/io/timer.sv",
             "rtl/core/bus.sv",
             "rtl/core/cpu/cpu.sv",
@@ -219,6 +235,7 @@ pub fn build(b: *std.Build) void {
         .{ "sim/test/cpu_bus.zig", "cpu_bus_top", cpu_bus_mod, "test:cpu_bus" },
         .{ "sim/test/interrupts.zig", "int_bus_top", int_bus_mod, "test:interrupts" },
         .{ "sim/test/timer.zig", "timer_top", timer_mod, "test:timer" },
+        .{ "sim/test/st7789.zig", "st7789_top", st7789_mod, "test:st7789" },
         .{ "sim/test/gb_top.zig", "gb_top", gb_top_mod, "test:gb_top" },
     };
 
