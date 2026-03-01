@@ -5,7 +5,8 @@
     .minimum_zig_version = "0.15.0",
     .dependencies = .{
         .zig_verilator = .{
-            .path = "../../zig-verilator",
+            .url = "git+https://github.com/code0100fun/zig-verilator#e3f6141d158acc63979f766c0b1e287f4bccd2b4",
+            .hash = "zig_verilator-0.1.0-NxTdTJufAABpXDvPmnpbPfrGk4Ki33A_f6LAgGZT3Jp6",
         },
     },
     .paths = .{
