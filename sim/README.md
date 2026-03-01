@@ -6,7 +6,7 @@ Verilator testbenches written in Zig using [zig-verilator](../../zig-verilator/)
 
 ```
 sim/
-  test/       Zig testbenches (tb_*.zig)
+  test/       Zig testbenches (*.zig)
   top/        Simulation-only top modules (e.g. cpu_bus_top.sv)
   data/       Hex files loaded by ROM modules during simulation
   roms/       Game Boy ROM files (gitignored)
@@ -97,14 +97,14 @@ work (most models already do). Tracing adds overhead, so only enable
 
 | Testbench | Module | Type | Tests |
 |---|---|---|---|
-| `tb_alu.zig` | ALU | combinational | 12 groups, 129 vectors |
-| `tb_decoder.zig` | instruction decoder | combinational | 8 groups, all 256+256 opcodes |
-| `tb_bus.zig` | memory bus | combinational | 20 address space checks |
-| `tb_regfile.zig` | register file | clocked | 8 tests (r8, r16, flags, SP/PC) |
-| `tb_rom.zig` | ROM | clocked | 4 tests (read, consistency, latency) |
-| `tb_single_port_ram.zig` | SRAM | clocked | 5 tests (write, read, overwrite, WE gating) |
-| `tb_dual_port_ram.zig` | dual-port RAM | manual clock | 5 tests (cross-port, independent clocks) |
-| `tb_cpu.zig` | CPU | clocked | 15 instruction group tests |
-| `tb_cpu_bus.zig` | CPU + bus integration | clocked | 1 integration test (WRAM, HRAM, Echo, CALL/RET) |
-| `tb_blinky.zig` | blinky | clocked | 4 tests (counter, fast mode, normal mode) |
-| `tb_gb_top.zig` | FPGA top | clocked | 1 boot test (LED output) |
+| `alu.zig` | ALU | combinational | 12 groups, 129 vectors |
+| `decoder.zig` | instruction decoder | combinational | 8 groups, all 256+256 opcodes |
+| `bus.zig` | memory bus | combinational | 20 address space checks |
+| `regfile.zig` | register file | clocked | 8 tests (r8, r16, flags, SP/PC) |
+| `rom.zig` | ROM | clocked | 4 tests (read, consistency, latency) |
+| `single_port_ram.zig` | SRAM | clocked | 5 tests (write, read, overwrite, WE gating) |
+| `dual_port_ram.zig` | dual-port RAM | manual clock | 5 tests (cross-port, independent clocks) |
+| `cpu.zig` | CPU | clocked | 15 instruction group tests |
+| `cpu_bus.zig` | CPU + bus integration | clocked | 1 integration test (WRAM, HRAM, Echo, CALL/RET) |
+| `blinky.zig` | blinky | clocked | 4 tests (counter, fast mode, normal mode) |
+| `gb_top.zig` | FPGA top | clocked | 1 boot test (LED output) |
