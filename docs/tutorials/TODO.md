@@ -45,7 +45,7 @@ descriptions of scope and goals.
 
 ## Peripherals (11–17)
 
-- [ ] **11 — Timer**: DIV register (FF04) free-running at 16384 Hz. TIMA/TMA/TAC
+- [x] **11 — Timer**: DIV register (FF04) free-running at 16384 Hz. TIMA/TMA/TAC
   (FF05–FF07) programmable timer with four selectable frequencies. Timer
   overflow fires the Timer interrupt. First peripheral to exercise the
   interrupt system end-to-end.

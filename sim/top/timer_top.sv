@@ -1,35 +1,41 @@
-// Game Boy FPGA top-level — Tang Nano 20K.
+// Integration test wrapper: CPU + bus + memory + timer.
 //
-// Wires CPU → bus → ROM / WRAM / HRAM with an LED register for
-// visible output. Memory uses combinational reads (distributed RAM).
-module gb_top #(
-    parameter int ROM_SIZE = 256,
-    parameter     ROM_FILE = "sim/data/boot_test.hex"
+// Extends cpu_bus_top with the timer module wired to the I/O bus,
+// plus debug outputs for direct timer register observation.
+module timer_top #(
+    parameter int ROM_SIZE  = 256,
+    parameter     ROM_FILE  = ""
 ) (
-    input  logic       clk,        // 27 MHz
-    input  logic       btn_s1,     // reset (active low)
-    input  logic       btn_s2,     // unused
-    output logic [5:0] led         // onboard LEDs (active low)
+    input  logic        clk,
+    input  logic        reset,
+
+    // Interrupt request lines (directly set IF bits — for non-timer sources)
+    input  logic [4:0]  int_request,
+
+    // Debug / status
+    output logic        halted,
+    output logic [15:0] dbg_pc,
+    output logic [15:0] dbg_sp,
+    output logic [7:0]  dbg_a, dbg_f,
+    output logic [7:0]  dbg_b, dbg_c,
+    output logic [7:0]  dbg_d, dbg_e,
+    output logic [7:0]  dbg_h, dbg_l,
+    output logic [7:0]  dbg_ie,
+    output logic [7:0]  dbg_if,
+
+    // Timer debug
+    output logic [15:0] dbg_div,
+    output logic [7:0]  dbg_tima,
+    output logic [7:0]  dbg_tma,
+    output logic [7:0]  dbg_tac
 );
 
-    // ---------------------------------------------------------------
-    // Reset synchronizer (btn_s1 is async, active low)
-    // ---------------------------------------------------------------
-    logic [1:0] rst_sync;
-    logic       reset;
-
-    always_ff @(posedge clk) begin
-        rst_sync <= {rst_sync[0], ~btn_s1};
-    end
-    assign reset = rst_sync[1];
-
-    // ---------------------------------------------------------------
     // CPU ↔ bus wires
-    // ---------------------------------------------------------------
     logic [15:0] cpu_addr;
     logic        cpu_rd, cpu_wr;
     logic [7:0]  cpu_wdata, cpu_rdata;
 
+    // Bus ↔ device wires
     logic [14:0] rom_addr;
     logic        rom_cs;
     logic [7:0]  rom_rdata;
@@ -49,11 +55,14 @@ module gb_top #(
     logic        ie_cs, ie_we;
     logic [7:0]  ie_wdata, ie_rdata;
 
-    logic        halted;
-
     // Interrupt wires
     logic [4:0]  int_req;
     logic [4:0]  int_ack;
+
+    // Timer wires
+    logic [7:0]  timer_rdata;
+    logic        timer_rdata_valid;
+    logic        timer_irq;
 
     // ---------------------------------------------------------------
     // CPU
@@ -69,15 +78,16 @@ module gb_top #(
         .int_req  (int_req),
         .int_ack  (int_ack),
         .halted   (halted),
-        .dbg_pc   (), .dbg_sp(),
-        .dbg_a    (), .dbg_f (),
-        .dbg_b    (), .dbg_c (),
-        .dbg_d    (), .dbg_e (),
-        .dbg_h    (), .dbg_l ()
+        .dbg_pc   (dbg_pc),
+        .dbg_sp   (dbg_sp),
+        .dbg_a    (dbg_a), .dbg_f(dbg_f),
+        .dbg_b    (dbg_b), .dbg_c(dbg_c),
+        .dbg_d    (dbg_d), .dbg_e(dbg_e),
+        .dbg_h    (dbg_h), .dbg_l(dbg_l)
     );
 
     // ---------------------------------------------------------------
-    // Address decoder
+    // Address decoder / read mux
     // ---------------------------------------------------------------
     bus u_bus (
         .cpu_addr  (cpu_addr),
@@ -85,20 +95,41 @@ module gb_top #(
         .cpu_wr    (cpu_wr),
         .cpu_wdata (cpu_wdata),
         .cpu_rdata (cpu_rdata),
-        .rom_addr  (rom_addr),  .rom_cs (rom_cs),  .rom_rdata (rom_rdata),
-        .wram_addr (wram_addr), .wram_cs(wram_cs),  .wram_we   (wram_we),
-        .wram_wdata(wram_wdata),.wram_rdata(wram_rdata),
-        .hram_addr (hram_addr), .hram_cs(hram_cs),  .hram_we   (hram_we),
-        .hram_wdata(hram_wdata),.hram_rdata(hram_rdata),
-        .io_addr   (io_addr),   .io_cs  (io_cs),    .io_rd     (io_rd),
-        .io_wr     (io_wr),     .io_wdata(io_wdata), .io_rdata  (io_rdata),
-        .ie_cs     (ie_cs),     .ie_we  (ie_we),
-        .ie_wdata  (ie_wdata),  .ie_rdata(ie_rdata)
+
+        .rom_addr  (rom_addr),
+        .rom_cs    (rom_cs),
+        .rom_rdata (rom_rdata),
+
+        .wram_addr (wram_addr),
+        .wram_cs   (wram_cs),
+        .wram_we   (wram_we),
+        .wram_wdata(wram_wdata),
+        .wram_rdata(wram_rdata),
+
+        .hram_addr (hram_addr),
+        .hram_cs   (hram_cs),
+        .hram_we   (hram_we),
+        .hram_wdata(hram_wdata),
+        .hram_rdata(hram_rdata),
+
+        .io_addr   (io_addr),
+        .io_cs     (io_cs),
+        .io_rd     (io_rd),
+        .io_wr     (io_wr),
+        .io_wdata  (io_wdata),
+        .io_rdata  (io_rdata),
+
+        .ie_cs     (ie_cs),
+        .ie_we     (ie_we),
+        .ie_wdata  (ie_wdata),
+        .ie_rdata  (ie_rdata)
     );
 
     // ---------------------------------------------------------------
-    // ROM (combinational read, distributed RAM)
+    // Memory arrays (combinational reads for simulation)
     // ---------------------------------------------------------------
+
+    // ROM
     logic [7:0] rom_mem [0:ROM_SIZE-1];
     initial begin
         for (int i = 0; i < ROM_SIZE; i++) rom_mem[i] = 8'h00;
@@ -107,16 +138,18 @@ module gb_top #(
     end
     assign rom_rdata = rom_mem[rom_addr[$clog2(ROM_SIZE)-1:0]];
 
-    // ---------------------------------------------------------------
-    // WRAM — stub for now (8 KB distributed RAM exceeds LUT budget).
-    // Will be replaced with BSRAM in a later tutorial.
-    // ---------------------------------------------------------------
-    assign wram_rdata = 8'hFF;
+    // WRAM (8 KB)
+    logic [7:0] wram_mem [0:8191];
+    initial for (int i = 0; i < 8192; i++) wram_mem[i] = 8'h00;
+    assign wram_rdata = wram_mem[wram_addr];
+    always_ff @(posedge clk) begin
+        if (wram_cs && wram_we)
+            wram_mem[wram_addr] <= wram_wdata;
+    end
 
-    // ---------------------------------------------------------------
-    // HRAM (127 bytes, combinational read, synchronous write)
-    // ---------------------------------------------------------------
+    // HRAM (127 bytes)
     logic [7:0] hram_mem [0:126];
+    initial for (int i = 0; i < 127; i++) hram_mem[i] = 8'h00;
     assign hram_rdata = hram_mem[hram_addr];
     always_ff @(posedge clk) begin
         if (hram_cs && hram_we)
@@ -124,28 +157,8 @@ module gb_top #(
     end
 
     // ---------------------------------------------------------------
-    // I/O registers
-    // ---------------------------------------------------------------
-    logic [7:0] led_reg;
-    initial led_reg = 8'h00;
-
-    always_ff @(posedge clk) begin
-        if (reset)
-            led_reg <= 8'h00;
-        else if (io_cs && io_wr && io_addr == 7'h01)
-            led_reg <= io_wdata;
-    end
-
-    // LEDs are active low
-    assign led = ~led_reg[5:0];
-
-    // ---------------------------------------------------------------
     // Timer (FF04–FF07)
     // ---------------------------------------------------------------
-    logic [7:0] timer_rdata;
-    logic       timer_rdata_valid;
-    logic       timer_irq;
-
     timer u_timer (
         .clk            (clk),
         .reset          (reset),
@@ -156,10 +169,10 @@ module gb_top #(
         .io_rdata       (timer_rdata),
         .io_rdata_valid (timer_rdata_valid),
         .irq            (timer_irq),
-        .dbg_div_ctr    (),
-        .dbg_tima       (),
-        .dbg_tma        (),
-        .dbg_tac        ()
+        .dbg_div_ctr    (dbg_div),
+        .dbg_tima       (dbg_tima),
+        .dbg_tma        (dbg_tma),
+        .dbg_tac        (dbg_tac)
     );
 
     // ---------------------------------------------------------------
@@ -171,12 +184,20 @@ module gb_top #(
     always_ff @(posedge clk) begin
         if (reset)
             if_reg <= 5'h00;
-        else if (int_ack != 5'b0)
-            if_reg <= if_reg & ~int_ack;
-        else if (timer_irq)
-            if_reg <= if_reg | 5'b00100;
-        else if (io_cs && io_wr && io_addr == 7'h0F)
-            if_reg <= io_wdata[4:0];
+        else begin
+            // External sources set bits (OR'd in)
+            if (int_request != 5'b0)
+                if_reg <= if_reg | int_request;
+            // Timer overflow sets bit 2
+            if (timer_irq)
+                if_reg <= if_reg | 5'b00100;
+            // CPU write replaces value
+            if (io_cs && io_wr && io_addr == 7'h0F)
+                if_reg <= io_wdata[4:0];
+            // Dispatch acknowledge clears bit (highest priority)
+            if (int_ack != 5'b0)
+                if_reg <= if_reg & ~int_ack;
+        end
     end
 
     // I/O read mux
@@ -185,7 +206,6 @@ module gb_top #(
             io_rdata = timer_rdata;
         else begin
             unique case (io_addr)
-                7'h01:   io_rdata = led_reg;
                 7'h0F:   io_rdata = {3'b111, if_reg};
                 default: io_rdata = 8'h00;
             endcase
@@ -193,7 +213,7 @@ module gb_top #(
     end
 
     // ---------------------------------------------------------------
-    // IE register (FFFF) — interrupt enable
+    // IE register (FFFF)
     // ---------------------------------------------------------------
     logic [7:0] ie_reg;
     initial ie_reg = 8'h00;
@@ -209,5 +229,9 @@ module gb_top #(
     // Interrupt request: IF & IE
     // ---------------------------------------------------------------
     assign int_req = if_reg & ie_reg[4:0];
+
+    // Debug outputs
+    assign dbg_ie = ie_reg;
+    assign dbg_if = {3'b111, if_reg};
 
 endmodule

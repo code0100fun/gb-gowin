@@ -154,10 +154,35 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const timer_mod = verilator.addModel(b, .{
+        .name = "timer_top",
+        .sources = &.{
+            "sim/top/timer_top.sv",
+            "rtl/io/timer.sv",
+            "rtl/core/bus.sv",
+            "rtl/core/cpu/cpu.sv",
+            "rtl/core/cpu/regfile.sv",
+            "rtl/core/cpu/alu.sv",
+            "rtl/core/cpu/decoder.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+            "-Wno-CASEOVERLAP",
+            "-Wno-UNOPTFLAT",
+            "-GROM_SIZE=256",
+            "-GROM_FILE=\"sim/data/timer_test.hex\"",
+        },
+    });
+
     const gb_top_mod = verilator.addModel(b, .{
         .name = "gb_top",
         .sources = &.{
             "rtl/platform/gb_top.sv",
+            "rtl/io/timer.sv",
             "rtl/core/bus.sv",
             "rtl/core/cpu/cpu.sv",
             "rtl/core/cpu/regfile.sv",
@@ -193,6 +218,7 @@ pub fn build(b: *std.Build) void {
         .{ "sim/test/cpu.zig", "cpu", cpu_mod, "test:cpu" },
         .{ "sim/test/cpu_bus.zig", "cpu_bus_top", cpu_bus_mod, "test:cpu_bus" },
         .{ "sim/test/interrupts.zig", "int_bus_top", int_bus_mod, "test:interrupts" },
+        .{ "sim/test/timer.zig", "timer_top", timer_mod, "test:timer" },
         .{ "sim/test/gb_top.zig", "gb_top", gb_top_mod, "test:gb_top" },
     };
 
