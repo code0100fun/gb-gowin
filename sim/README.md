@@ -70,7 +70,7 @@ To debug signals with a waveform viewer (GTKWave, Surfer, etc.), pass
 
 ```zig
 test "debug ALU" {
-    var dut = try alu.Model.init(.{ .trace_file = "alu_debug.vcd" });
+    var dut = try alu.Model.init(.{ .trace_file = "build/alu_debug.vcd" });
     defer dut.deinit();
 
     dut.set(.op, 0);
@@ -81,12 +81,10 @@ test "debug ALU" {
 }
 ```
 
-The VCD file is written to the working directory. Open it with:
+Use the `build/` directory for VCD files — it's already gitignored. Open with:
 
 ```sh
-gtkwave alu_debug.vcd
-# or
-surfer alu_debug.vcd
+surfer build/alu_debug.vcd
 ```
 
 The model must have `.trace = true` in its `build.zig` definition for tracing to

@@ -54,7 +54,7 @@ library. Each model is defined in `build.zig` and imported into the test file.
 | Method | What it does |
 |--------|-------------|
 | `Model.init(.{})` | Create model instance |
-| `Model.init(.{ .trace_file = "out.vcd" })` | Create model with VCD tracing |
+| `Model.init(.{ .trace_file = "build/out.vcd" })` | Create model with VCD tracing |
 | `dut.deinit()` | Clean up (use with `defer`) |
 | `dut.set(.signal, value)` | Drive an input signal |
 | `dut.get(.signal)` | Read any signal (input or output) |
@@ -81,9 +81,12 @@ logic — without it, outputs won't update.
 Pass `.trace_file` when initializing the model to enable waveform output:
 
 ```zig
-var dut = try blinky.Model.init(.{ .trace_file = "blinky.vcd" });
+var dut = try blinky.Model.init(.{ .trace_file = "build/blinky.vcd" });
 defer dut.deinit();
 ```
+
+Use the `build/` directory for VCD files — it's already gitignored and keeps
+trace output out of the project root.
 
 VCD (Value Change Dump) files record every signal change. You can view them in
 Surfer (the VSCode extension or standalone app). The file can get large for long
@@ -252,7 +255,7 @@ To generate a VCD file, temporarily add `.trace_file` to any test:
 
 ```zig
 test "debug blinky" {
-    var dut = try blinky.Model.init(.{ .trace_file = "blinky.vcd" });
+    var dut = try blinky.Model.init(.{ .trace_file = "build/blinky.vcd" });
     defer dut.deinit();
     // ... test code ...
 }
@@ -260,9 +263,9 @@ test "debug blinky" {
 
 Open the VCD in Surfer:
 
-- **VSCode:** Just click on `blinky.vcd` in the file explorer — the
+- **VSCode:** Just click on `build/blinky.vcd` in the file explorer — the
   Surfer extension (`surfer-project.surfer`) opens it automatically.
-- **Standalone:** Run `surfer blinky.vcd` from the terminal.
+- **Standalone:** Run `surfer build/blinky.vcd` from the terminal.
 
 In Surfer:
 1. Browse the signal hierarchy to find `TOP > blinky`
@@ -323,7 +326,7 @@ waveform shows you exactly what happened cycle-by-cycle.
    test: press S2, run 1000 cycles, verify LEDs don't change. Release S2, run
    1000 cycles, verify they do.
 
-3. **Experiment with waveforms.** Add `.trace_file = "blinky_debug.vcd"` to a
+3. **Experiment with waveforms.** Add `.trace_file = "build/blinky_debug.vcd"` to a
    test, run it, and open the VCD in Surfer. Measure the exact cycle count
    between LED transitions. Does it match your calculations from Tutorial 02?
 
