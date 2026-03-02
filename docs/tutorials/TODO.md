@@ -66,7 +66,7 @@ descriptions of scope and goals.
 - [x] **16 — PPU: Timing and STAT**: Accurate mode transitions (OAM scan →
   pixel transfer → HBlank → VBlank). LY/LYC comparison, STAT interrupt
   sources. Correct cycle timing so real games don't glitch.
-- [ ] **17 — Joypad Input**: 8 pushbuttons on breadboard GPIO mapped to the
+- [x] **17 — Joypad Input**: 8 pushbuttons on breadboard GPIO mapped to the
   JOYP register (FF00). Column/row multiplexing matching the original Game
   Boy matrix. Debouncing. Joypad interrupt on button press.
 - [ ] **18 — Serial Port**: Minimal serial (link cable) implementation. SB/SC

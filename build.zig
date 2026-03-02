@@ -209,6 +209,22 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const joypad_mod = verilator.addModel(b, .{
+        .name = "joypad_top",
+        .sources = &.{
+            "sim/top/joypad_top.sv",
+            "rtl/io/joypad.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+            "-Wno-PINCONNECTEMPTY",
+        },
+    });
+
     const gb_top_mod = verilator.addModel(b, .{
         .name = "gb_top",
         .sources = &.{
@@ -218,6 +234,7 @@ pub fn build(b: *std.Build) void {
             "rtl/memory/single_port_ram.sv",
             "rtl/lcd/st7789.sv",
             "rtl/io/timer.sv",
+            "rtl/io/joypad.sv",
             "rtl/core/bus.sv",
             "rtl/core/cpu/cpu.sv",
             "rtl/core/cpu/regfile.sv",
@@ -255,6 +272,7 @@ pub fn build(b: *std.Build) void {
         .{ "sim/test/interrupts.zig", "int_bus_top", int_bus_mod, "test:interrupts" },
         .{ "sim/test/timer.zig", "timer_top", timer_mod, "test:timer" },
         .{ "sim/test/st7789.zig", "st7789_top", st7789_mod, "test:st7789" },
+        .{ "sim/test/joypad.zig", "joypad_top", joypad_mod, "test:joypad" },
         .{ "sim/test/ppu.zig", "ppu_top", ppu_mod, "test:ppu" },
         .{ "sim/test/gb_top.zig", "gb_top", gb_top_mod, "test:gb_top" },
     };

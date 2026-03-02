@@ -18,7 +18,17 @@ module gb_top #(
     output logic       lcd_dc,
     output logic       lcd_sclk,
     output logic       lcd_mosi,
-    output logic       lcd_bl
+    output logic       lcd_bl,
+
+    // Joypad buttons (active high — GPIO pulled to 3.3V when pressed)
+    input  logic       btn_right,
+    input  logic       btn_left,
+    input  logic       btn_up,
+    input  logic       btn_down,
+    input  logic       btn_a,
+    input  logic       btn_b,
+    input  logic       btn_select,
+    input  logic       btn_start
 );
 
     // ---------------------------------------------------------------
@@ -208,6 +218,29 @@ module gb_top #(
     );
 
     // ---------------------------------------------------------------
+    // Joypad (FF00)
+    // ---------------------------------------------------------------
+    logic [7:0] joypad_rdata;
+    logic       joypad_rdata_valid;
+    logic       joypad_irq;
+
+    wire [7:0] btn_bus = {btn_start, btn_select, btn_b, btn_a,
+                          btn_down, btn_up, btn_left, btn_right};
+
+    joypad u_joypad (
+        .clk            (clk),
+        .reset          (reset),
+        .io_cs          (io_cs),
+        .io_addr        (io_addr),
+        .io_wr          (io_wr),
+        .io_wdata       (io_wdata),
+        .io_rdata       (joypad_rdata),
+        .io_rdata_valid (joypad_rdata_valid),
+        .btn            (btn_bus),
+        .irq            (joypad_irq)
+    );
+
+    // ---------------------------------------------------------------
     // IF register (FF0F) — interrupt flags
     // ---------------------------------------------------------------
     logic [4:0] if_reg;
@@ -221,6 +254,7 @@ module gb_top #(
         if (ppu_irq_vblank) next_if = next_if | 5'b00001;
         if (ppu_irq_stat)   next_if = next_if | 5'b00010;
         if (timer_irq)      next_if = next_if | 5'b00100;
+        if (joypad_irq)     next_if = next_if | 5'b10000;
         if (io_cs && io_wr && io_addr == 7'h0F)
             next_if = io_wdata[4:0];
         if (int_ack != 5'b0)
@@ -240,6 +274,8 @@ module gb_top #(
             io_rdata = ppu_rdata;
         else if (timer_rdata_valid)
             io_rdata = timer_rdata;
+        else if (joypad_rdata_valid)
+            io_rdata = joypad_rdata;
         else begin
             unique case (io_addr)
                 7'h01:   io_rdata = led_reg;
