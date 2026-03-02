@@ -137,13 +137,20 @@ test "Echo RAM at 0xFDFF" {
     try std.testing.expectEqual(@as(u64, 0xBB), dut.get(.cpu_rdata));
 }
 
-test "OAM stub" {
+test "OAM select" {
     var dut = try bus.Model.init(.{});
     defer dut.deinit();
 
+    // OAM at FE00: should assert oam_cs, not wram_cs
     probe(&dut, 0xFE00);
     try std.testing.expect(dut.get(.wram_cs) == 0);
-    try std.testing.expectEqual(@as(u64, 0xFF), dut.get(.cpu_rdata));
+    try std.testing.expect(dut.get(.oam_cs) != 0);
+    try std.testing.expectEqual(@as(u64, 0x00), dut.get(.oam_addr));
+
+    // OAM at FE9F: last OAM byte
+    probe(&dut, 0xFE9F);
+    try std.testing.expect(dut.get(.oam_cs) != 0);
+    try std.testing.expectEqual(@as(u64, 0x9F), dut.get(.oam_addr));
 }
 
 test "unusable region" {

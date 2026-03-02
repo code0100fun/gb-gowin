@@ -60,9 +60,9 @@ descriptions of scope and goals.
 - [x] **14 — BSRAM Memory**: Migrate VRAM and WRAM from distributed RAM to
   BSRAM for FPGA resource efficiency. CPU wait states for synchronous read
   latency, PPU tile-fetch pipeline FSM, ST7789 pixel_ready handshake.
-- [ ] **15 — PPU: Sprites**: OAM (FE00–FE9F) with 40 sprite entries. Sprite
+- [x] **15 — PPU: Sprites**: OAM (FE00–FE9F) with 40 sprite entries. Sprite
   priority, 10-per-line limit, 8×8 and 8×16 modes. OBP0/OBP1 palettes.
-  Sprite pixels mixed into the background FIFO.
+  Per-scanline sprite scan, tile pre-fetch, and combinational pixel mixing.
 - [ ] **16 — PPU: Timing and STAT**: Accurate mode transitions (OAM scan →
   pixel transfer → HBlank → VBlank). LY/LYC comparison, STAT interrupt
   sources. Correct cycle timing so real games don't glitch.

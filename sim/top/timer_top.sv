@@ -56,6 +56,10 @@ module timer_top #(
     logic        io_cs, io_rd, io_wr;
     logic [7:0]  io_wdata, io_rdata;
 
+    logic [7:0]  oam_addr;
+    logic        oam_cs, oam_we;
+    logic [7:0]  oam_wdata, oam_rdata;
+
     logic        ie_cs, ie_we;
     logic [7:0]  ie_wdata, ie_rdata;
 
@@ -130,6 +134,12 @@ module timer_top #(
         .io_wdata  (io_wdata),
         .io_rdata  (io_rdata),
 
+        .oam_addr  (oam_addr),
+        .oam_cs    (oam_cs),
+        .oam_we    (oam_we),
+        .oam_wdata (oam_wdata),
+        .oam_rdata (oam_rdata),
+
         .ie_cs     (ie_cs),
         .ie_we     (ie_we),
         .ie_wdata  (ie_wdata),
@@ -174,6 +184,15 @@ module timer_top #(
     always_ff @(posedge clk) begin
         if (hram_cs && hram_we)
             hram_mem[hram_addr] <= hram_wdata;
+    end
+
+    // OAM (160 bytes, combinational read, synchronous write)
+    logic [7:0] oam_mem [0:159];
+    initial for (int i = 0; i < 160; i++) oam_mem[i] = 8'h00;
+    assign oam_rdata = oam_mem[oam_addr];
+    always_ff @(posedge clk) begin
+        if (oam_cs && oam_we)
+            oam_mem[oam_addr] <= oam_wdata;
     end
 
     // ---------------------------------------------------------------

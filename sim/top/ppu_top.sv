@@ -1,8 +1,9 @@
-// Simulation wrapper for the PPU — standalone with direct VRAM/register access.
+// Simulation wrapper for the PPU — standalone with direct VRAM/OAM/register access.
 //
-// The testbench preloads VRAM with tile data and tile maps, sets PPU
-// registers, then drives pixel_fetch to trigger the tile-fetch pipeline
-// and waits for pixel_data_valid before reading pixel_data.
+// The testbench preloads VRAM with tile data and tile maps, writes OAM
+// entries, sets PPU registers, then drives pixel_fetch to trigger the
+// tile-fetch pipeline and waits for pixel_data_valid before reading
+// pixel_data.
 module ppu_top (
     input  logic        clk,
     input  logic        reset,
@@ -12,6 +13,12 @@ module ppu_top (
     input  logic        vram_wr,
     input  logic [7:0]  vram_wdata,
     output logic [7:0]  vram_rdata,
+
+    // OAM write/read port (testbench writes sprite entries)
+    input  logic [7:0]  oam_addr,
+    input  logic        oam_wr,
+    input  logic [7:0]  oam_wdata,
+    output logic [7:0]  oam_rdata,
 
     // Register interface (testbench writes PPU registers)
     input  logic [6:0]  io_addr,
@@ -50,6 +57,13 @@ module ppu_top (
         .cpu_vram_we    (vram_wr),
         .cpu_vram_wdata (vram_wdata),
         .cpu_vram_rdata (vram_rdata),
+
+        // OAM: testbench drives directly
+        .cpu_oam_addr   (oam_addr),
+        .cpu_oam_cs     (1'b1),        // always selected
+        .cpu_oam_we     (oam_wr),
+        .cpu_oam_wdata  (oam_wdata),
+        .cpu_oam_rdata  (oam_rdata),
 
         // I/O registers: testbench drives directly
         .io_cs          (1'b1),        // always selected

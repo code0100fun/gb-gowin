@@ -65,6 +65,10 @@ module gb_top #(
     logic        io_cs, io_rd, io_wr;
     logic [7:0]  io_wdata, io_rdata;
 
+    logic [7:0]  oam_addr;
+    logic        oam_cs, oam_we;
+    logic [7:0]  oam_wdata, oam_rdata;
+
     logic        ie_cs, ie_we;
     logic [7:0]  ie_wdata, ie_rdata;
 
@@ -114,6 +118,8 @@ module gb_top #(
         .hram_wdata(hram_wdata),.hram_rdata(hram_rdata),
         .io_addr   (io_addr),   .io_cs  (io_cs),    .io_rd     (io_rd),
         .io_wr     (io_wr),     .io_wdata(io_wdata), .io_rdata  (io_rdata),
+        .oam_addr  (oam_addr),  .oam_cs (oam_cs),   .oam_we    (oam_we),
+        .oam_wdata (oam_wdata), .oam_rdata(oam_rdata),
         .ie_cs     (ie_cs),     .ie_we  (ie_we),
         .ie_wdata  (ie_wdata),  .ie_rdata(ie_rdata)
     );
@@ -274,6 +280,11 @@ module gb_top #(
         .cpu_vram_we      (vram_we),
         .cpu_vram_wdata   (vram_wdata),
         .cpu_vram_rdata   (vram_rdata),
+        .cpu_oam_addr     (oam_addr),
+        .cpu_oam_cs       (oam_cs),
+        .cpu_oam_we       (oam_we),
+        .cpu_oam_wdata    (oam_wdata),
+        .cpu_oam_rdata    (oam_rdata),
         .io_cs            (io_cs),
         .io_addr          (io_addr),
         .io_wr            (io_wr),

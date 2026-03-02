@@ -1,16 +1,18 @@
-// Game Boy PPU — Background and Window renderer.
+// Game Boy PPU — Background, Window, and Sprite renderer.
 //
 // VRAM (8 KB) is stored in a dual-port BSRAM: Port A for CPU read/write,
-// Port B for PPU tile fetches. Since BSRAM has synchronous reads (1-cycle
-// latency), the PPU uses a pipeline FSM to fetch tile data over multiple
-// cycles instead of the previous combinational lookup chain.
+// Port B for PPU tile fetches. OAM (160 bytes) is stored in distributed
+// RAM with combinational reads for fast scanline sprite scanning.
 //
 // The ST7789 LCD controller pulses pixel_fetch when it needs a new pixel.
-// The PPU latches pixel_x/pixel_y, walks the tile fetch pipeline (4 cycles
-// for BG only, 7 cycles for BG + window), then asserts pixel_data_valid.
+// On the first pixel of each scanline, the PPU scans OAM (40 cycles) and
+// pre-fetches sprite tile data from VRAM (3 cycles per sprite, max 10).
+// Then the BG/window pipeline runs (4–7 cycles) with sprite mixing at the
+// end.
 //
 // Implements registers: LCDC (FF40), STAT (FF41), SCY (FF42), SCX (FF43),
-// LY (FF44), LYC (FF45), BGP (FF47), WY (FF4A), WX (FF4B).
+// LY (FF44), LYC (FF45), BGP (FF47), OBP0 (FF48), OBP1 (FF49),
+// WY (FF4A), WX (FF4B).
 //
 // Simplified timing: LY tracks pixel_y from the display controller.
 // Accurate mode transitions and STAT interrupts come in a later tutorial.
@@ -24,6 +26,13 @@ module ppu (
     input  logic        cpu_vram_we,
     input  logic [7:0]  cpu_vram_wdata,
     output logic [7:0]  cpu_vram_rdata,
+
+    // CPU OAM access (from bus) — distributed RAM
+    input  logic [7:0]  cpu_oam_addr,
+    input  logic        cpu_oam_cs,
+    input  logic        cpu_oam_we,
+    input  logic [7:0]  cpu_oam_wdata,
+    output logic [7:0]  cpu_oam_rdata,
 
     // I/O registers (from bus, same pattern as timer)
     input  logic        io_cs,
@@ -67,6 +76,19 @@ module ppu (
     );
 
     // -----------------------------------------------------------------
+    // OAM — 160 bytes distributed RAM (40 sprites × 4 bytes)
+    // Combinational reads (no wait states), synchronous writes.
+    // -----------------------------------------------------------------
+    logic [7:0] oam [0:159];
+
+    assign cpu_oam_rdata = oam[cpu_oam_addr];
+
+    always_ff @(posedge clk) begin
+        if (cpu_oam_cs && cpu_oam_we)
+            oam[cpu_oam_addr] <= cpu_oam_wdata;
+    end
+
+    // -----------------------------------------------------------------
     // PPU registers
     // -----------------------------------------------------------------
     logic [7:0] reg_lcdc;   // FF40
@@ -76,6 +98,8 @@ module ppu (
     // LY (FF44) is read-only, derived from pixel_y
     logic [7:0] reg_lyc;    // FF45
     logic [7:0] reg_bgp;    // FF47
+    logic [7:0] reg_obp0;   // FF48
+    logic [7:0] reg_obp1;   // FF49
     logic [7:0] reg_wy;     // FF4A
     logic [7:0] reg_wx;     // FF4B
 
@@ -86,6 +110,8 @@ module ppu (
         reg_scx  = 8'h00;
         reg_lyc  = 8'h00;
         reg_bgp  = 8'hFC;  // default palette: 3,3,2,0 -> shades 11,10,01,00
+        reg_obp0 = 8'h00;
+        reg_obp1 = 8'h00;
         reg_wy   = 8'h00;
         reg_wx   = 8'h00;
     end
@@ -105,6 +131,8 @@ module ppu (
             reg_scx  <= 8'h00;
             reg_lyc  <= 8'h00;
             reg_bgp  <= 8'hFC;
+            reg_obp0 <= 8'h00;
+            reg_obp1 <= 8'h00;
             reg_wy   <= 8'h00;
             reg_wx   <= 8'h00;
         end else if (io_cs && io_wr) begin
@@ -116,6 +144,8 @@ module ppu (
                 // 7'h44: LY is read-only
                 7'h45: reg_lyc  <= io_wdata;
                 7'h47: reg_bgp  <= io_wdata;
+                7'h48: reg_obp0 <= io_wdata;
+                7'h49: reg_obp1 <= io_wdata;
                 7'h4A: reg_wy   <= io_wdata;
                 7'h4B: reg_wx   <= io_wdata;
                 default: ;
@@ -135,6 +165,8 @@ module ppu (
             7'h44:   io_rdata = ly;
             7'h45:   io_rdata = reg_lyc;
             7'h47:   io_rdata = reg_bgp;
+            7'h48:   io_rdata = reg_obp0;
+            7'h49:   io_rdata = reg_obp1;
             7'h4A:   io_rdata = reg_wy;
             7'h4B:   io_rdata = reg_wx;
             default: io_rdata = 8'hFF;
@@ -195,6 +227,8 @@ module ppu (
     wire win_enable    = reg_lcdc[5];
     wire tile_data_sel = reg_lcdc[4]; // 0 = 8800/signed, 1 = 8000/unsigned
     wire bg_map_hi     = reg_lcdc[3]; // 0 = 9800, 1 = 9C00
+    wire obj_tall      = reg_lcdc[2]; // 0 = 8×8, 1 = 8×16
+    wire obj_enable    = reg_lcdc[1];
     wire bg_enable     = reg_lcdc[0];
 
     // DMG shade -> RGB565 lookup
@@ -207,7 +241,7 @@ module ppu (
         endcase
     endfunction
 
-    // Compute tile data address from tile index and row
+    // Compute tile data address from tile index and row (BG/window)
     function logic [12:0] tile_data_addr(logic [7:0] tile_idx, logic [2:0] row);
         if (tile_data_sel) begin
             // Unsigned mode (LCDC.4=1): base 0x0000
@@ -219,17 +253,38 @@ module ppu (
     endfunction
 
     // -----------------------------------------------------------------
+    // Scanline sprite buffer
+    // -----------------------------------------------------------------
+    // Filled during SPR_SCAN, consumed during pixel mixing.
+    logic [7:0]  spr_buf_x      [0:9];
+    logic [7:0]  spr_buf_tile   [0:9];
+    logic [7:0]  spr_buf_attr   [0:9];
+    logic [3:0]  spr_buf_row    [0:9];  // pre-computed row (after Y-flip)
+    logic [7:0]  spr_buf_row_lo [0:9];  // pre-fetched tile data
+    logic [7:0]  spr_buf_row_hi [0:9];
+    logic [3:0]  spr_count;             // number of sprites found (0–10)
+    logic [7:0]  last_scanned_y;        // scanline for which sprite scan is valid
+
+    initial begin
+        spr_count      = 4'd0;
+        last_scanned_y = 8'hFF;
+    end
+
+    // -----------------------------------------------------------------
     // Tile fetch pipeline FSM
     // -----------------------------------------------------------------
     // BSRAM has 1-cycle read latency: set address in cycle N, data
-    // available in cycle N+1. The FSM walks through tile map and tile
-    // data reads for BG (3 reads = 4 cycles) and optionally window
-    // (3 more reads = 7 cycles total).
+    // available in cycle N+1. The FSM walks through:
+    //   1. Sprite scan (40 cycles, once per scanline)
+    //   2. Sprite tile pre-fetch (3 cycles per sprite, max 30)
+    //   3. BG tile map + data (3 reads = 4 cycles)
+    //   4. Optionally window tile map + data (3 more reads = 7 total)
+    //   5. Sprite mixing (combinational, in PX_BG_HI or PX_WIN_HI)
     //
     // ppu_vram_addr is driven COMBINATIONALLY from the FSM state and
     // ppu_vram_rdata (which is a registered BSRAM output — no loop).
 
-    typedef enum logic [2:0] {
+    typedef enum logic [3:0] {
         PX_IDLE,
         PX_BG_MAP,
         PX_BG_LO,
@@ -237,7 +292,11 @@ module ppu (
         PX_WIN_MAP,
         PX_WIN_LO,
         PX_WIN_HI,
-        PX_DONE
+        PX_DONE,
+        SPR_SCAN,
+        SPR_FETCH_LO,
+        SPR_FETCH_HI,
+        SPR_FETCH_DONE
     } px_state_t;
 
     px_state_t px_state;
@@ -256,6 +315,10 @@ module ppu (
 
     // Whether window is active for this pixel (latched)
     logic px_win_active;
+
+    // Sprite scan/fetch indices
+    logic [5:0] scan_idx;     // 0–39: current OAM entry being checked
+    logic [3:0] fetch_idx;    // 0–9: current sprite being fetched
 
     initial begin
         px_state         = PX_IDLE;
@@ -278,25 +341,60 @@ module ppu (
     wire [12:0] fetch_bg_map_addr = (bg_map_hi ? 13'h1C00 : 13'h1800)
                                    + {3'b000, fetch_bg_y[7:3], fetch_bg_x[7:3]};
 
-    // Combinational VRAM address mux — driven by FSM state.
-    // IDLE/DONE use raw pixel inputs to pre-load the bg map entry;
-    // mid-pipeline states use latched coordinates and BSRAM read data.
+    // -----------------------------------------------------------------
+    // Sprite tile address for pre-fetch
+    // -----------------------------------------------------------------
+    // Sprites always use unsigned tile data area (VRAM 0x0000 = GB 0x8000).
+    wire [7:0]  fetch_spr_tile = spr_buf_tile[fetch_idx];
+    wire [3:0]  fetch_spr_row  = spr_buf_row[fetch_idx];
+    // In 8×16 mode, tile index bit 0 selects top/bottom half
+    wire [7:0]  fetch_spr_tile_adj = obj_tall
+        ? (fetch_spr_row[3] ? (fetch_spr_tile | 8'h01) : (fetch_spr_tile & 8'hFE))
+        : fetch_spr_tile;
+    wire [12:0] spr_tile_lo_addr = {1'b0, fetch_spr_tile_adj, fetch_spr_row[2:0], 1'b0};
+    wire [12:0] spr_tile_hi_addr = spr_tile_lo_addr + 13'd1;
+
+    // -----------------------------------------------------------------
+    // OAM scan — combinational reads for current scan_idx
+    // -----------------------------------------------------------------
+    wire [7:0] scan_oam_y    = oam[{scan_idx, 2'd0}];
+    wire [7:0] scan_oam_x    = oam[{scan_idx, 2'd1}];
+    wire [7:0] scan_oam_tile = oam[{scan_idx, 2'd2}];
+    wire [7:0] scan_oam_attr = oam[{scan_idx, 2'd3}];
+
+    // Sprite row within tile: pixel_y + 16 - oam_y (unsigned)
+    wire [8:0] scan_spr_row_raw = {1'b0, pixel_y} + 9'd16 - {1'b0, scan_oam_y};
+    wire [3:0] scan_spr_height  = obj_tall ? 4'd15 : 4'd7;
+    wire       scan_spr_hit     = (scan_spr_row_raw[8:4] == 5'd0)
+                                && (scan_spr_row_raw[3:0] <= scan_spr_height);
+    // Apply Y-flip
+    wire [3:0] scan_spr_row_flip = scan_oam_attr[6]
+        ? (scan_spr_height - scan_spr_row_raw[3:0])
+        : scan_spr_row_raw[3:0];
+
+    // -----------------------------------------------------------------
+    // Combinational VRAM address mux — driven by FSM state
+    // -----------------------------------------------------------------
     always_comb begin
         case (px_state)
-            PX_IDLE:    ppu_vram_addr = fetch_bg_map_addr;
-            PX_BG_MAP:  ppu_vram_addr = tile_data_addr(ppu_vram_rdata, pipe_bg_y[2:0]);
-            PX_BG_LO:   ppu_vram_addr = px_bg_data_base + 13'd1;
-            PX_BG_HI:   ppu_vram_addr = pipe_win_map_addr;
-            PX_WIN_MAP: ppu_vram_addr = tile_data_addr(ppu_vram_rdata, pipe_win_y[2:0]);
-            PX_WIN_LO:  ppu_vram_addr = px_win_data_base + 13'd1;
-            PX_DONE:    ppu_vram_addr = fetch_bg_map_addr;
-            default:     ppu_vram_addr = 13'd0;
+            PX_IDLE:        ppu_vram_addr = fetch_bg_map_addr;
+            PX_BG_MAP:      ppu_vram_addr = tile_data_addr(ppu_vram_rdata, pipe_bg_y[2:0]);
+            PX_BG_LO:       ppu_vram_addr = px_bg_data_base + 13'd1;
+            PX_BG_HI:       ppu_vram_addr = pipe_win_map_addr;
+            PX_WIN_MAP:     ppu_vram_addr = tile_data_addr(ppu_vram_rdata, pipe_win_y[2:0]);
+            PX_WIN_LO:      ppu_vram_addr = px_win_data_base + 13'd1;
+            PX_DONE:        ppu_vram_addr = fetch_bg_map_addr;
+            SPR_SCAN:       ppu_vram_addr = 13'd0;
+            SPR_FETCH_LO:   ppu_vram_addr = spr_tile_lo_addr;
+            SPR_FETCH_HI:   ppu_vram_addr = spr_tile_hi_addr;
+            SPR_FETCH_DONE: ppu_vram_addr = fetch_bg_map_addr;
+            default:        ppu_vram_addr = 13'd0;
         endcase
     end
 
-    // Combinational pixel decode — used by FSM to register pixel_data.
-    // In PX_BG_HI: ppu_vram_rdata = bg tile hi, px_bg_tile_lo = bg tile lo
-    // In PX_WIN_HI: ppu_vram_rdata = win tile hi, px_win_tile_lo = win tile lo
+    // -----------------------------------------------------------------
+    // Combinational pixel decode
+    // -----------------------------------------------------------------
     wire [2:0] bg_bit_pos    = 3'd7 - pipe_bg_x[2:0];
     wire [1:0] bg_color_id   = {ppu_vram_rdata[bg_bit_pos], px_bg_tile_lo[bg_bit_pos]};
     wire [1:0] bg_shade      = reg_bgp[bg_color_id * 2 +: 2];
@@ -307,12 +405,80 @@ module ppu (
     wire [1:0] win_shade     = reg_bgp[win_color_id * 2 +: 2];
     wire [15:0] win_rgb565   = shade_to_rgb565(win_shade);
 
+    // -----------------------------------------------------------------
+    // Sprite pixel mixing — combinational priority encoder
+    // -----------------------------------------------------------------
+    // Checks all 10 sprite buffer slots against the current pixel X.
+    // First (lowest OAM index) opaque sprite wins (DMG priority).
+    //
+    // Pre-compute per-slot hit/color with a generate block (wires),
+    // then use a simple priority encoder in always_comb.
+    // -----------------------------------------------------------------
+
+    // Per-slot sprite hit and color (combinational wires)
+    logic [8:0] spr_col   [0:9];
+    logic       spr_hit   [0:9];
+    logic [2:0] spr_bpos  [0:9];
+    logic [1:0] spr_color [0:9];
+
+    for (genvar gi = 0; gi < 10; gi++) begin : gen_spr
+        assign spr_col[gi]  = {1'b0, px_x} + 9'd8 - {1'b0, spr_buf_x[gi]};
+        assign spr_hit[gi]  = (spr_col[gi][8:3] == 6'd0);
+        assign spr_bpos[gi] = spr_buf_attr[gi][5]
+                             ? spr_col[gi][2:0]         // X-flip
+                             : (3'd7 - spr_col[gi][2:0]);
+        assign spr_color[gi] = {spr_buf_row_hi[gi][spr_bpos[gi]],
+                                spr_buf_row_lo[gi][spr_bpos[gi]]};
+    end
+
+    // Priority encoder: find first opaque sprite
+    logic        spr_pixel_found;
+    logic [1:0]  spr_pixel_color;
+    logic        spr_pixel_behind_bg;
+    logic [7:0]  spr_pixel_palette;
+
+    always_comb begin
+        spr_pixel_found     = 1'b0;
+        spr_pixel_color     = 2'd0;
+        spr_pixel_behind_bg = 1'b0;
+        spr_pixel_palette   = reg_obp0;
+
+        for (int i = 0; i < 10; i++) begin
+            if (!spr_pixel_found && i < int'(spr_count)
+                && spr_hit[i] && spr_color[i] != 2'd0) begin
+                spr_pixel_found     = 1'b1;
+                spr_pixel_color     = spr_color[i];
+                spr_pixel_behind_bg = spr_buf_attr[i][7];
+                spr_pixel_palette   = spr_buf_attr[i][4] ? reg_obp1 : reg_obp0;
+            end
+        end
+    end
+
+    wire [1:0]  spr_shade   = spr_pixel_palette[spr_pixel_color * 2 +: 2];
+    wire [15:0] spr_rgb565  = shade_to_rgb565(spr_shade);
+
+    // Compute final pixel given BG/window color_id and rgb565
+    function logic [15:0] mix_sprite(logic [1:0] under_color_id, logic [15:0] under_rgb565);
+        if (obj_enable && spr_pixel_found) begin
+            if (spr_pixel_behind_bg && under_color_id != 2'd0)
+                mix_sprite = under_rgb565;
+            else
+                mix_sprite = spr_rgb565;
+        end else begin
+            mix_sprite = under_rgb565;
+        end
+    endfunction
+
+    // -----------------------------------------------------------------
     // Pipeline FSM
+    // -----------------------------------------------------------------
     always_ff @(posedge clk) begin
         if (reset) begin
             px_state         <= PX_IDLE;
             pixel_data       <= 16'hFFFF;
             pixel_data_valid <= 1'b0;
+            spr_count        <= 4'd0;
+            last_scanned_y   <= 8'hFF;
         end else begin
             case (px_state)
                 PX_IDLE: begin
@@ -323,69 +489,132 @@ module ppu (
                                       && (pixel_y >= reg_wy)
                                       && (pixel_x + 8'd7 >= reg_wx);
                         pixel_data_valid <= 1'b0;
-                        // ppu_vram_addr = bg_map_addr (combinational)
-                        px_state <= PX_BG_MAP;
+
+                        if (obj_enable && pixel_y != last_scanned_y) begin
+                            // New scanline — scan OAM for sprites
+                            scan_idx       <= 6'd0;
+                            spr_count      <= 4'd0;
+                            last_scanned_y <= pixel_y;
+                            px_state       <= SPR_SCAN;
+                        end else begin
+                            // Same scanline (or sprites off) — go to BG
+                            px_state <= PX_BG_MAP;
+                        end
                     end
                 end
 
+                // =============================================================
+                // Sprite scan: check one OAM entry per cycle (40 cycles)
+                // =============================================================
+                SPR_SCAN: begin
+                    if (scan_spr_hit && spr_count < 4'd10) begin
+                        spr_buf_x[spr_count]    <= scan_oam_x;
+                        spr_buf_tile[spr_count]  <= scan_oam_tile;
+                        spr_buf_attr[spr_count]  <= scan_oam_attr;
+                        spr_buf_row[spr_count]   <= scan_spr_row_flip;
+                        spr_count                <= spr_count + 4'd1;
+                    end
+
+                    if (scan_idx == 6'd39) begin
+                        // Scan complete — fetch tile data or start BG
+                        // Check if we found any sprites (account for potential
+                        // hit on this final cycle)
+                        if (spr_count > 4'd0 || (scan_spr_hit && spr_count < 4'd10)) begin
+                            fetch_idx <= 4'd0;
+                            // ppu_vram_addr = spr_tile_lo_addr (combinational)
+                            px_state  <= SPR_FETCH_LO;
+                        end else begin
+                            // No sprites — go to BG pipeline
+                            // ppu_vram_addr = fetch_bg_map_addr (combinational)
+                            px_state <= PX_BG_MAP;
+                        end
+                    end else begin
+                        scan_idx <= scan_idx + 6'd1;
+                    end
+                end
+
+                // =============================================================
+                // Sprite tile pre-fetch: 3 cycles per sprite
+                // =============================================================
+                SPR_FETCH_LO: begin
+                    // VRAM addr set to spr_tile_lo_addr (combinational)
+                    // Next cycle: rdata_b = tile low byte
+                    px_state <= SPR_FETCH_HI;
+                end
+
+                SPR_FETCH_HI: begin
+                    // Latch tile low byte from VRAM
+                    spr_buf_row_lo[fetch_idx] <= ppu_vram_rdata;
+                    // VRAM addr set to spr_tile_hi_addr (combinational)
+                    px_state <= SPR_FETCH_DONE;
+                end
+
+                SPR_FETCH_DONE: begin
+                    // Latch tile high byte from VRAM
+                    spr_buf_row_hi[fetch_idx] <= ppu_vram_rdata;
+
+                    if (fetch_idx + 4'd1 >= spr_count) begin
+                        // All sprites fetched — start BG pipeline
+                        // ppu_vram_addr = fetch_bg_map_addr (combinational)
+                        px_state <= PX_BG_MAP;
+                    end else begin
+                        fetch_idx <= fetch_idx + 4'd1;
+                        px_state  <= SPR_FETCH_LO;
+                    end
+                end
+
+                // =============================================================
+                // BG/Window pipeline (unchanged, with sprite mixing at end)
+                // =============================================================
                 PX_BG_MAP: begin
                     // rdata_b has bg tile index
                     px_bg_tile_idx <= ppu_vram_rdata;
                     px_bg_data_base <= tile_data_addr(ppu_vram_rdata, pipe_bg_y[2:0]);
-                    // ppu_vram_addr = tile_data_lo (combinational)
                     px_state <= PX_BG_LO;
                 end
 
                 PX_BG_LO: begin
                     // rdata_b has bg tile low byte
                     px_bg_tile_lo <= ppu_vram_rdata;
-                    // ppu_vram_addr = tile_data_hi (combinational, uses px_bg_data_base)
                     px_state <= PX_BG_HI;
                 end
 
                 PX_BG_HI: begin
                     // rdata_b has bg tile high byte — compute BG pixel
                     if (!lcd_on || !bg_enable) begin
-                        // LCD off or BG disabled
                         pixel_data <= 16'hFFFF;
                         pixel_data_valid <= 1'b1;
                         px_state <= PX_DONE;
                     end else if (px_win_active) begin
-                        // Need window data — save BG result and start window fetch
-                        // ppu_vram_addr = win_map_addr (combinational)
+                        // Need window data — start window fetch
                         px_state <= PX_WIN_MAP;
                     end else begin
-                        // BG only — compute final pixel
-                        pixel_data <= bg_rgb565;
+                        // BG only — mix with sprite and output
+                        pixel_data <= mix_sprite(bg_color_id, bg_rgb565);
                         pixel_data_valid <= 1'b1;
                         px_state <= PX_DONE;
                     end
                 end
 
                 PX_WIN_MAP: begin
-                    // rdata_b has window tile index
                     px_win_tile_idx <= ppu_vram_rdata;
                     px_win_data_base <= tile_data_addr(ppu_vram_rdata, pipe_win_y[2:0]);
-                    // ppu_vram_addr = win tile_data_lo (combinational)
                     px_state <= PX_WIN_LO;
                 end
 
                 PX_WIN_LO: begin
-                    // rdata_b has window tile low byte
                     px_win_tile_lo <= ppu_vram_rdata;
-                    // ppu_vram_addr = win tile_data_hi (combinational)
                     px_state <= PX_WIN_HI;
                 end
 
                 PX_WIN_HI: begin
-                    // rdata_b has window tile high byte — compute window pixel
-                    pixel_data <= win_rgb565;
+                    // Window pixel — mix with sprite and output
+                    pixel_data <= mix_sprite(win_color_id, win_rgb565);
                     pixel_data_valid <= 1'b1;
                     px_state <= PX_DONE;
                 end
 
                 PX_DONE: begin
-                    // Hold pixel_data valid until next fetch
                     if (pixel_fetch) begin
                         px_x <= pixel_x;
                         px_y <= pixel_y;
@@ -393,7 +622,15 @@ module ppu (
                                       && (pixel_y >= reg_wy)
                                       && (pixel_x + 8'd7 >= reg_wx);
                         pixel_data_valid <= 1'b0;
-                        px_state <= PX_BG_MAP;
+
+                        if (obj_enable && pixel_y != last_scanned_y) begin
+                            scan_idx       <= 6'd0;
+                            spr_count      <= 4'd0;
+                            last_scanned_y <= pixel_y;
+                            px_state       <= SPR_SCAN;
+                        end else begin
+                            px_state <= PX_BG_MAP;
+                        end
                     end
                 end
 

@@ -10,7 +10,7 @@
 //   A000-BFFF  External RAM       — stub (returns FF)
 //   C000-DFFF  WRAM (8 KB)        — active
 //   E000-FDFF  Echo RAM           — mirrors WRAM
-//   FE00-FE9F  OAM                — stub (returns FF)
+//   FE00-FE9F  OAM (160 bytes)    — active
 //   FEA0-FEFF  Unusable           — returns FF
 //   FF00-FF7F  I/O registers      — active (active select, no logic yet)
 //   FF80-FFFE  HRAM (127 bytes)   — active
@@ -57,6 +57,13 @@ module bus (
     output logic [7:0]  vram_wdata,
     input  logic [7:0]  vram_rdata,
 
+    // OAM (FE00-FE9F)
+    output logic [7:0]  oam_addr,
+    output logic        oam_cs,
+    output logic        oam_we,
+    output logic [7:0]  oam_wdata,
+    input  logic [7:0]  oam_rdata,
+
     // IE register (FFFF)
     output logic        ie_cs,
     output logic        ie_we,
@@ -69,6 +76,7 @@ module bus (
     assign wram_wdata = cpu_wdata;
     assign hram_wdata = cpu_wdata;
     assign io_wdata   = cpu_wdata;
+    assign oam_wdata  = cpu_wdata;
     assign ie_wdata   = cpu_wdata;
 
     always_comb begin
@@ -78,6 +86,7 @@ module bus (
         wram_cs  = 1'b0;
         hram_cs  = 1'b0;
         io_cs    = 1'b0;
+        oam_cs   = 1'b0;
         ie_cs    = 1'b0;
 
         rom_addr  = cpu_addr[14:0];
@@ -85,10 +94,12 @@ module bus (
         wram_addr = cpu_addr[12:0];
         hram_addr = cpu_addr[6:0];
         io_addr   = cpu_addr[6:0];
+        oam_addr  = cpu_addr[7:0];
 
         vram_we = 1'b0;
         wram_we = 1'b0;
         hram_we = 1'b0;
+        oam_we  = 1'b0;
         io_rd   = 1'b0;
         io_wr   = 1'b0;
         ie_we   = 1'b0;
@@ -133,8 +144,11 @@ module bus (
                     wram_we   = cpu_wr;
                     cpu_rdata = wram_rdata;
                 end else if (cpu_addr <= 16'hFE9F) begin
-                    // OAM: FE00-FE9F (stub)
-                    cpu_rdata = 8'hFF;
+                    // OAM: FE00-FE9F
+                    oam_cs    = 1'b1;
+                    oam_addr  = cpu_addr[7:0];
+                    oam_we    = cpu_wr;
+                    cpu_rdata = oam_rdata;
                 end else if (cpu_addr <= 16'hFEFF) begin
                     // Unusable: FEA0-FEFF
                     cpu_rdata = 8'hFF;
