@@ -233,7 +233,7 @@ S_STREAM_HI: begin
     if (!spi_busy && pixel_ready) begin
         lcd_cs    <= 1'b0;
         lcd_dc    <= 1'b1;
-        shift_reg <= pixel_data[15:8];
+        shift_data <= pixel_data[15:8];
         spi_start <= 1'b1;
         state     <= S_STREAM_LO;
     end
