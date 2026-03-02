@@ -213,17 +213,25 @@ module gb_top #(
     logic [4:0] if_reg;
     initial if_reg = 5'h00;
 
+    // Compute next IF value combinationally — parallel OR allows
+    // multiple interrupt sources to set their bits in the same cycle.
+    logic [4:0] next_if;
+    always_comb begin
+        next_if = if_reg;
+        if (ppu_irq_vblank) next_if = next_if | 5'b00001;
+        if (ppu_irq_stat)   next_if = next_if | 5'b00010;
+        if (timer_irq)      next_if = next_if | 5'b00100;
+        if (io_cs && io_wr && io_addr == 7'h0F)
+            next_if = io_wdata[4:0];
+        if (int_ack != 5'b0)
+            next_if = next_if & ~int_ack;
+    end
+
     always_ff @(posedge clk) begin
         if (reset)
             if_reg <= 5'h00;
-        else if (int_ack != 5'b0)
-            if_reg <= if_reg & ~int_ack;
-        else if (ppu_irq_vblank)
-            if_reg <= if_reg | 5'b00001;
-        else if (timer_irq)
-            if_reg <= if_reg | 5'b00100;
-        else if (io_cs && io_wr && io_addr == 7'h0F)
-            if_reg <= io_wdata[4:0];
+        else
+            if_reg <= next_if;
     end
 
     // I/O read mux
@@ -265,6 +273,7 @@ module gb_top #(
     logic [7:0]  ppu_rdata;
     logic        ppu_rdata_valid;
     logic        ppu_irq_vblank;
+    logic        ppu_irq_stat;
 
     logic [7:0]  lcd_pixel_x;
     logic [7:0]  lcd_pixel_y;
@@ -297,7 +306,8 @@ module gb_top #(
         .pixel_fetch      (lcd_pixel_req),
         .pixel_data       (lcd_pixel_data),
         .pixel_data_valid (lcd_pixel_ready),
-        .irq_vblank       (ppu_irq_vblank)
+        .irq_vblank       (ppu_irq_vblank),
+        .irq_stat         (ppu_irq_stat)
     );
 
     // ---------------------------------------------------------------

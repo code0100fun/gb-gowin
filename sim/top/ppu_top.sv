@@ -41,7 +41,8 @@ module ppu_top (
     output logic [7:0]  dbg_ly,
     output logic [7:0]  dbg_wy,
     output logic [7:0]  dbg_wx,
-    output logic        dbg_irq_vblank
+    output logic        dbg_irq_vblank,
+    output logic        dbg_irq_stat
 );
 
     // I/O rdata_valid not needed at wrapper level
@@ -82,7 +83,8 @@ module ppu_top (
         .pixel_data_valid (pixel_data_valid),
 
         // Interrupts
-        .irq_vblank     (dbg_irq_vblank)
+        .irq_vblank     (dbg_irq_vblank),
+        .irq_stat       (dbg_irq_stat)
     );
 
     // Debug: read registers back via io bus

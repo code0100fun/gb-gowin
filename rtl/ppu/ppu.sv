@@ -14,8 +14,9 @@
 // LY (FF44), LYC (FF45), BGP (FF47), OBP0 (FF48), OBP1 (FF49),
 // WY (FF4A), WX (FF4B).
 //
-// Simplified timing: LY tracks pixel_y from the display controller.
-// Accurate mode transitions and STAT interrupts come in a later tutorial.
+// Timing: autonomous mcycle/scanline counters provide accurate LY,
+// mode transitions (0/1/2/3), and STAT interrupts. Rendering is still
+// LCD-driven (pixel_fetch from ST7789 controller).
 module ppu (
     input  logic        clk,
     input  logic        reset,
@@ -51,7 +52,8 @@ module ppu (
     output logic        pixel_data_valid, // level: pixel_data is ready
 
     // Interrupts
-    output logic        irq_vblank
+    output logic        irq_vblank,
+    output logic        irq_stat
 );
 
     // -----------------------------------------------------------------
@@ -95,7 +97,7 @@ module ppu (
     logic [7:0] reg_stat;   // FF41
     logic [7:0] reg_scy;    // FF42
     logic [7:0] reg_scx;    // FF43
-    // LY (FF44) is read-only, derived from pixel_y
+    // LY (FF44) is read-only, derived from timing counter (ly_ctr)
     logic [7:0] reg_lyc;    // FF45
     logic [7:0] reg_bgp;    // FF47
     logic [7:0] reg_obp0;   // FF48
@@ -116,11 +118,11 @@ module ppu (
         reg_wx   = 8'h00;
     end
 
-    // LY = pixel_y (simplified -- accurate timing in a later tutorial)
-    wire [7:0] ly = pixel_y;
+    // LY = ly_ctr (from autonomous timing counters, see below)
+    wire [7:0] ly = ly_ctr;
 
-    // STAT register: bits [1:0] = mode (always 3 for now), bit 2 = LY==LYC
-    wire [7:0] stat_read = {1'b1, reg_stat[6:3], (ly == reg_lyc) ? 1'b1 : 1'b0, 2'b11};
+    // STAT register: bits [1:0] = mode, bit 2 = LY==LYC
+    wire [7:0] stat_read = {1'b1, reg_stat[6:3], (ly == reg_lyc) ? 1'b1 : 1'b0, ppu_mode};
 
     // Register writes
     always_ff @(posedge clk) begin
@@ -205,19 +207,19 @@ module ppu (
     end
 
     // -----------------------------------------------------------------
-    // VBlank IRQ -- pulse when frame completes (pixel_y: 143 -> 0)
+    // VBlank IRQ — pulse when ly_ctr transitions to 144
     // -----------------------------------------------------------------
-    logic prev_vblank;
-    initial prev_vblank = 1'b0;
+    logic prev_vblank_line;
+    initial prev_vblank_line = 1'b0;
 
     always_ff @(posedge clk) begin
         if (reset)
-            prev_vblank <= 1'b0;
+            prev_vblank_line <= 1'b0;
         else
-            prev_vblank <= (pixel_y == 8'd0 && prev_pixel_y != 8'd0);
+            prev_vblank_line <= (ly_ctr == 8'd144);
     end
 
-    assign irq_vblank = (pixel_y == 8'd0 && prev_pixel_y != 8'd0) && !prev_vblank;
+    assign irq_vblank = (ly_ctr == 8'd144) && !prev_vblank_line;
 
     // -----------------------------------------------------------------
     // LCDC bit aliases
@@ -230,6 +232,77 @@ module ppu (
     wire obj_tall      = reg_lcdc[2]; // 0 = 8×8, 1 = 8×16
     wire obj_enable    = reg_lcdc[1];
     wire bg_enable     = reg_lcdc[0];
+
+    // -----------------------------------------------------------------
+    // Timing counters — autonomous PPU timing
+    // -----------------------------------------------------------------
+    // mcycle_ctr: 0–113 (114 M-cycles per scanline = 456 dots)
+    // ly_ctr:     0–153 (154 scanlines per frame)
+    // ppu_mode:   derived combinationally from counters
+    //
+    // These counters run independently of the LCD-driven rendering
+    // pipeline. They provide accurate register values and interrupts.
+    // -----------------------------------------------------------------
+    logic [6:0] mcycle_ctr;
+    logic [7:0] ly_ctr;
+    logic [1:0] ppu_mode;
+
+    initial begin
+        mcycle_ctr = 7'd0;
+        ly_ctr     = 8'd0;
+    end
+
+    always_ff @(posedge clk) begin
+        if (reset || !lcd_on) begin
+            mcycle_ctr <= 7'd0;
+            ly_ctr     <= 8'd0;
+        end else begin
+            if (mcycle_ctr == 7'd113) begin
+                mcycle_ctr <= 7'd0;
+                ly_ctr <= (ly_ctr == 8'd153) ? 8'd0 : ly_ctr + 8'd1;
+            end else begin
+                mcycle_ctr <= mcycle_ctr + 7'd1;
+            end
+        end
+    end
+
+    always_comb begin
+        if (!lcd_on)
+            ppu_mode = 2'd0;
+        else if (ly_ctr >= 8'd144)
+            ppu_mode = 2'd1;  // VBlank
+        else if (mcycle_ctr < 7'd20)
+            ppu_mode = 2'd2;  // OAM scan
+        else if (mcycle_ctr < 7'd63)
+            ppu_mode = 2'd3;  // Pixel transfer
+        else
+            ppu_mode = 2'd0;  // HBlank
+    end
+
+    // -----------------------------------------------------------------
+    // STAT interrupt — rising edge of composite "STAT line"
+    // -----------------------------------------------------------------
+    // The STAT interrupt fires on the rising edge of the OR of all
+    // enabled STAT conditions. Gated by lcd_on to prevent spurious
+    // interrupts when LCD is off (ppu_mode=0 would match HBlank).
+    // -----------------------------------------------------------------
+    wire stat_line = lcd_on && (
+        (reg_stat[3] && ppu_mode == 2'd0) ||  // Mode 0 HBlank
+        (reg_stat[4] && ppu_mode == 2'd1) ||  // Mode 1 VBlank
+        (reg_stat[5] && ppu_mode == 2'd2) ||  // Mode 2 OAM scan
+        (reg_stat[6] && ly == reg_lyc));       // LYC=LY coincidence
+
+    logic prev_stat_line;
+    initial prev_stat_line = 1'b0;
+
+    always_ff @(posedge clk) begin
+        if (reset)
+            prev_stat_line <= 1'b0;
+        else
+            prev_stat_line <= stat_line;
+    end
+
+    assign irq_stat = stat_line && !prev_stat_line;
 
     // DMG shade -> RGB565 lookup
     function logic [15:0] shade_to_rgb565(logic [1:0] shade);

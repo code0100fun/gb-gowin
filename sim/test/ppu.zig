@@ -703,3 +703,205 @@ test "sprite — OBJ enable toggle" {
     const px_off = getPixel(&dut, 0, 1);
     try std.testing.expectEqual(@as(u16, 0xFFFF), px_off);
 }
+
+// =====================================================================
+// Timing / STAT tests (Tutorial 16)
+// =====================================================================
+
+/// Read a PPU register via the I/O bus (combinational — no clock advance).
+fn readReg(dut: *ppu_top.Model, addr: u7) u8 {
+    dut.set(.io_addr, addr);
+    dut.set(.io_wr, 0);
+    dut.eval();
+    return @truncate(dut.get(.io_rdata));
+}
+
+/// Advance the clock by N M-cycles.
+fn tickN(dut: *ppu_top.Model, n: u32) void {
+    for (0..n) |_| dut.tick();
+}
+
+/// Enable LCD (LCDC bit 7 + unsigned tile data + BG enable).
+/// After this returns, mcycle_ctr = 0 and lcd_on is true.
+fn enableLcd(dut: *ppu_top.Model) void {
+    writeReg(dut, LCDC, 0x91); // LCD on, unsigned tile data, BG on
+}
+
+test "timing — mode 2 after LCD enable" {
+    var dut = try ppu_top.Model.init(.{});
+    defer dut.deinit();
+    resetDut(&dut);
+
+    // Before LCD is enabled, mode should be 0
+    var stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 0), @as(u2, @truncate(stat)));
+
+    // Enable LCD — counters start at mcycle=0, ly=0 → mode 2
+    enableLcd(&dut);
+
+    stat = readReg(&dut, STAT);
+    const mode: u2 = @truncate(stat);
+    print("  After LCD enable: STAT=0x{x:0>2} mode={d}\n", .{ stat, mode });
+    try std.testing.expectEqual(@as(u2, 2), mode);
+}
+
+test "timing — mode transitions 2 -> 3 -> 0 -> 2" {
+    var dut = try ppu_top.Model.init(.{});
+    defer dut.deinit();
+    resetDut(&dut);
+    enableLcd(&dut);
+
+    // Mode 2 (OAM scan): mcycles 0-19
+    dut.tick(); // mcycle 1
+    var stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 2), @as(u2, @truncate(stat)));
+
+    // Advance to mcycle 19 (still mode 2)
+    tickN(&dut, 18); // now at mcycle 19
+    stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 2), @as(u2, @truncate(stat)));
+
+    // Advance to mcycle 20 -> mode 3 (pixel transfer)
+    dut.tick();
+    stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 3), @as(u2, @truncate(stat)));
+
+    // Advance to mcycle 62 (still mode 3)
+    tickN(&dut, 42);
+    stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 3), @as(u2, @truncate(stat)));
+
+    // Advance to mcycle 63 -> mode 0 (HBlank)
+    dut.tick();
+    stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 0), @as(u2, @truncate(stat)));
+
+    // Advance to mcycle 113 (still mode 0)
+    tickN(&dut, 50);
+    stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 0), @as(u2, @truncate(stat)));
+
+    // Advance one more -> mcycle 0 of next scanline -> mode 2
+    dut.tick();
+    stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 2), @as(u2, @truncate(stat)));
+}
+
+test "timing — LY increments every 114 mcycles" {
+    var dut = try ppu_top.Model.init(.{});
+    defer dut.deinit();
+    resetDut(&dut);
+    enableLcd(&dut);
+
+    // LY starts at 0
+    var ly = readReg(&dut, LY);
+    try std.testing.expectEqual(@as(u8, 0), ly);
+
+    // After 114 ticks, LY should be 1
+    tickN(&dut, 114);
+    ly = readReg(&dut, LY);
+    try std.testing.expectEqual(@as(u8, 1), ly);
+
+    // After another 114, LY should be 2
+    tickN(&dut, 114);
+    ly = readReg(&dut, LY);
+    try std.testing.expectEqual(@as(u8, 2), ly);
+}
+
+test "timing — VBlank mode at LY 144-153" {
+    var dut = try ppu_top.Model.init(.{});
+    defer dut.deinit();
+    resetDut(&dut);
+    enableLcd(&dut);
+
+    // Advance to LY=144: 144 * 114 = 16416 ticks
+    tickN(&dut, 144 * 114);
+    var ly = readReg(&dut, LY);
+    try std.testing.expectEqual(@as(u8, 144), ly);
+
+    // Mode should be 1 (VBlank)
+    var stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 1), @as(u2, @truncate(stat)));
+
+    // Advance to LY=153
+    tickN(&dut, 9 * 114);
+    ly = readReg(&dut, LY);
+    try std.testing.expectEqual(@as(u8, 153), ly);
+    stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 1), @as(u2, @truncate(stat)));
+
+    // After 114 more ticks: LY wraps to 0, mode -> 2
+    tickN(&dut, 114);
+    ly = readReg(&dut, LY);
+    try std.testing.expectEqual(@as(u8, 0), ly);
+    stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 2), @as(u2, @truncate(stat)));
+}
+
+test "timing — VBlank IRQ at LY 144" {
+    var dut = try ppu_top.Model.init(.{});
+    defer dut.deinit();
+    resetDut(&dut);
+    enableLcd(&dut);
+
+    // Advance to just before LY=144
+    tickN(&dut, 144 * 114 - 1);
+    try std.testing.expectEqual(@as(u64, 0), dut.get(.dbg_irq_vblank));
+
+    // One more tick -> LY becomes 144, VBlank IRQ should pulse
+    dut.tick();
+    try std.testing.expectEqual(@as(u64, 1), dut.get(.dbg_irq_vblank));
+
+    // Next tick: IRQ cleared (edge-triggered)
+    dut.tick();
+    try std.testing.expectEqual(@as(u64, 0), dut.get(.dbg_irq_vblank));
+}
+
+test "timing — LYC coincidence flag" {
+    var dut = try ppu_top.Model.init(.{});
+    defer dut.deinit();
+    resetDut(&dut);
+    writeReg(&dut, LYC, 5);
+    enableLcd(&dut);
+
+    // Before LY=5: coincidence bit (STAT bit 2) should be 0
+    tickN(&dut, 4 * 114);
+    var stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u1, 0), @as(u1, @truncate(stat >> 2)));
+
+    // At LY=5: coincidence bit should be 1
+    tickN(&dut, 114);
+    const ly = readReg(&dut, LY);
+    try std.testing.expectEqual(@as(u8, 5), ly);
+    stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u1, 1), @as(u1, @truncate(stat >> 2)));
+
+    // At LY=6: coincidence bit should be 0 again
+    tickN(&dut, 114);
+    stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u1, 0), @as(u1, @truncate(stat >> 2)));
+}
+
+test "timing — STAT IRQ on HBlank entry" {
+    var dut = try ppu_top.Model.init(.{});
+    defer dut.deinit();
+    resetDut(&dut);
+    writeReg(&dut, STAT, 0x08); // Enable mode-0 (HBlank) STAT interrupt
+    enableLcd(&dut);
+
+    // mcycle is now 0. Advance 62 ticks -> mcycle=62, mode=3
+    tickN(&dut, 62);
+    try std.testing.expectEqual(@as(u64, 0), dut.get(.dbg_irq_stat));
+
+    // Tick to mcycle=63 -> mode=0 (HBlank) -> STAT IRQ fires
+    dut.tick();
+    try std.testing.expectEqual(@as(u64, 1), dut.get(.dbg_irq_stat));
+
+    // Verify mode is 0
+    const stat = readReg(&dut, STAT);
+    try std.testing.expectEqual(@as(u2, 0), @as(u2, @truncate(stat)));
+
+    // Next tick: IRQ cleared (one-shot edge)
+    dut.tick();
+    try std.testing.expectEqual(@as(u64, 0), dut.get(.dbg_irq_stat));
+}
