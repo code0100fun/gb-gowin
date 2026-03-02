@@ -112,7 +112,8 @@ module st7789 (
     //   type 01 = data byte    (DC=1)
     //   type 10 = delay (data = index: 0=10ms, 1=120ms)
     //   type 11 = end marker
-    localparam int RAMWR_IDX = 44;  // index of RAMWR entry for frame restart
+    localparam int GAME_WIN_IDX = 46;  // game window CASET after full-screen clear
+    localparam int RAMWR_IDX    = 56;  // RAMWR entry for frame restart
     logic [5:0]  init_idx;
     logic [9:0]  init_entry;
 
@@ -164,23 +165,39 @@ module st7789 (
             6'd30:   init_entry = {2'b01, 8'hA1};
             // ---- Display inversion ----
             6'd31:   init_entry = {2'b00, 8'h21};  // INVON
-            // ---- Column address set ----
-            6'd32:   init_entry = {2'b00, 8'h2A};  // CASET
-            6'd33:   init_entry = {2'b01, 8'h00};  //   x_start high
-            6'd34:   init_entry = {2'b01, 8'h28};  //   x_start low  (40)
-            6'd35:   init_entry = {2'b01, 8'h00};  //   x_end high
-            6'd36:   init_entry = {2'b01, 8'hC7};  //   x_end low    (199)
-            // ---- Row address set ----
-            6'd37:   init_entry = {2'b00, 8'h2B};  // RASET
-            6'd38:   init_entry = {2'b01, 8'h00};  //   y_start high
-            6'd39:   init_entry = {2'b01, 8'h30};  //   y_start low  (48)
-            6'd40:   init_entry = {2'b01, 8'h00};  //   y_end high
-            6'd41:   init_entry = {2'b01, 8'hBF};  //   y_end low    (191)
             // ---- Display on + delay ----
-            6'd42:   init_entry = {2'b00, 8'h29};  // DISPON
-            6'd43:   init_entry = {2'b10, 8'h01};  // delay 120ms
+            6'd32:   init_entry = {2'b00, 8'h29};  // DISPON
+            6'd33:   init_entry = {2'b10, 8'h01};  // delay 120ms
+            // ---- Full-screen clear: CASET 0–239 ----
+            6'd34:   init_entry = {2'b00, 8'h2A};  // CASET
+            6'd35:   init_entry = {2'b01, 8'h00};  //   x_start high
+            6'd36:   init_entry = {2'b01, 8'h00};  //   x_start low  (0)
+            6'd37:   init_entry = {2'b01, 8'h00};  //   x_end high
+            6'd38:   init_entry = {2'b01, 8'hEF};  //   x_end low    (239)
+            // ---- Full-screen clear: RASET 0–239 ----
+            6'd39:   init_entry = {2'b00, 8'h2B};  // RASET
+            6'd40:   init_entry = {2'b01, 8'h00};  //   y_start high
+            6'd41:   init_entry = {2'b01, 8'h00};  //   y_start low  (0)
+            6'd42:   init_entry = {2'b01, 8'h00};  //   y_end high
+            6'd43:   init_entry = {2'b01, 8'hEF};  //   y_end low    (239)
+            // ---- Start full-screen clear ----
+            6'd44:   init_entry = {2'b00, 8'h2C};  // RAMWR (clear)
+            6'd45:   init_entry = {2'b11, 8'h00};  // end → clear 240×240 black
+            // ---- Game window: CASET 40–199 ----
+            6'd46:   init_entry = {2'b00, 8'h2A};  // CASET
+            6'd47:   init_entry = {2'b01, 8'h00};  //   x_start high
+            6'd48:   init_entry = {2'b01, 8'h28};  //   x_start low  (40)
+            6'd49:   init_entry = {2'b01, 8'h00};  //   x_end high
+            6'd50:   init_entry = {2'b01, 8'hC7};  //   x_end low    (199)
+            // ---- Game window: RASET 48–191 ----
+            6'd51:   init_entry = {2'b00, 8'h2B};  // RASET
+            6'd52:   init_entry = {2'b01, 8'h00};  //   y_start high
+            6'd53:   init_entry = {2'b01, 8'h30};  //   y_start low  (48)
+            6'd54:   init_entry = {2'b01, 8'h00};  //   y_end high
+            6'd55:   init_entry = {2'b01, 8'hBF};  //   y_end low    (191)
             // ---- Start pixel stream ----
-            6'd44:   init_entry = {2'b00, 8'h2C};  // RAMWR
+            6'd56:   init_entry = {2'b00, 8'h2C};  // RAMWR (stream)
+            6'd57:   init_entry = {2'b11, 8'h00};  // end → start streaming
             default: init_entry = {2'b11, 8'h00};  // end marker
         endcase
     end
@@ -203,6 +220,8 @@ module st7789 (
     logic [21:0] delay_ctr;  // up to ~4M cycles
     logic [14:0] px_cnt;     // pixel counter (0..23039)
     state_t      delay_ret;  // return state after delay
+    logic        clearing;   // true during full-screen black fill
+    logic        clear_done; // set after clear phase started
 
     initial begin
         state     = S_RESET_LO;
@@ -215,8 +234,10 @@ module st7789 (
         pixel_req = 1'b0;
         busy      = 1'b1;
         init_idx  = 6'd0;
-        px_cnt    = 15'd0;
-        delay_ctr = 22'd0;
+        px_cnt     = 15'd0;
+        delay_ctr  = 22'd0;
+        clearing   = 1'b0;
+        clear_done = 1'b0;
     end
 
     always_ff @(posedge clk) begin
@@ -233,8 +254,10 @@ module st7789 (
             init_idx  <= 6'd0;
             px_cnt    <= 15'd0;
             delay_ctr <= 22'd0;
-            spi_start <= 1'b0;
+            spi_start  <= 1'b0;
             shift_data <= 8'd0;
+            clearing   <= 1'b0;
+            clear_done <= 1'b0;
         end else begin
             spi_start <= 1'b0;
             pixel_req <= 1'b0;
@@ -290,14 +313,22 @@ module st7789 (
                                 init_idx  <= init_idx + 6'd1;
                                 state     <= S_DELAY;
                             end
-                            2'b11: begin // end — start streaming
-                                lcd_bl    <= 1'b1;
-                                busy      <= 1'b0;
-                                pixel_x   <= 8'd0;
-                                pixel_y   <= 8'd0;
-                                px_cnt    <= 15'd0;
-                                state     <= S_STREAM_HI;
-                                pixel_req <= 1'b1;
+                            2'b11: begin // end marker
+                                lcd_bl  <= 1'b1;
+                                pixel_x <= 8'd0;
+                                pixel_y <= 8'd0;
+                                px_cnt  <= 15'd0;
+                                if (!clear_done) begin
+                                    // First end: fill entire 240×240 with black
+                                    clear_done <= 1'b1;
+                                    clearing   <= 1'b1;
+                                    state      <= S_STREAM_HI;
+                                end else begin
+                                    // Second end / frame restart: stream game pixels
+                                    busy      <= 1'b0;
+                                    pixel_req <= 1'b1;
+                                    state     <= S_STREAM_HI;
+                                end
                             end
                         endcase
                     end
@@ -327,10 +358,10 @@ module st7789 (
 
                 // ---- Pixel streaming ----
                 S_STREAM_HI: begin
-                    if (!spi_busy && pixel_ready) begin
+                    if (!spi_busy && (clearing || pixel_ready)) begin
                         lcd_cs     <= 1'b0;
                         lcd_dc     <= 1'b1;
-                        shift_data <= pixel_data[15:8];
+                        shift_data <= clearing ? 8'h00 : pixel_data[15:8];
                         spi_start  <= 1'b1;
                         state      <= S_STREAM_LO;
                     end
@@ -338,7 +369,7 @@ module st7789 (
 
                 S_STREAM_LO: begin
                     if (spi_done) begin
-                        shift_data <= pixel_data[7:0];
+                        shift_data <= clearing ? 8'h00 : pixel_data[7:0];
                         spi_start  <= 1'b1;
                         state      <= S_STREAM_WAIT;
                     end
@@ -346,28 +377,33 @@ module st7789 (
 
                 S_STREAM_WAIT: begin
                     if (spi_done) begin
-                        // Advance coordinates
-                        if (pixel_x == FB_W[7:0] - 8'd1) begin
+                        // 240×240 during clear, 160×144 during game stream
+                        if (pixel_x == (clearing ? 8'd239 : FB_W[7:0] - 8'd1)) begin
                             pixel_x <= 8'd0;
-                            if (pixel_y == FB_H[7:0] - 8'd1) begin
-                                pixel_y <= 8'd0;
-                                px_cnt  <= 15'd0;
-                                // New frame — re-send RAMWR
-                                lcd_cs  <= 1'b1;
-                                state   <= S_INIT;
-                                // Point init_idx at the RAMWR entry (index 19)
-                                init_idx <= RAMWR_IDX[5:0];
+                            if (pixel_y == (clearing ? 8'd239 : FB_H[7:0] - 8'd1)) begin
+                                pixel_y  <= 8'd0;
+                                px_cnt   <= 15'd0;
+                                lcd_cs   <= 1'b1;
+                                if (clearing) begin
+                                    // Clear done — set up game window
+                                    clearing <= 1'b0;
+                                    init_idx <= GAME_WIN_IDX[5:0];
+                                end else begin
+                                    // Frame done — re-send RAMWR
+                                    init_idx <= RAMWR_IDX[5:0];
+                                end
+                                state <= S_INIT;
                             end else begin
-                                pixel_y   <= pixel_y + 8'd1;
-                                px_cnt    <= px_cnt + 15'd1;
-                                pixel_req <= 1'b1;
-                                state     <= S_STREAM_HI;
+                                pixel_y <= pixel_y + 8'd1;
+                                px_cnt  <= px_cnt + 15'd1;
+                                if (!clearing) pixel_req <= 1'b1;
+                                state   <= S_STREAM_HI;
                             end
                         end else begin
-                            pixel_x   <= pixel_x + 8'd1;
-                            px_cnt    <= px_cnt + 15'd1;
-                            pixel_req <= 1'b1;
-                            state     <= S_STREAM_HI;
+                            pixel_x <= pixel_x + 8'd1;
+                            px_cnt  <= px_cnt + 15'd1;
+                            if (!clearing) pixel_req <= 1'b1;
+                            state   <= S_STREAM_HI;
                         end
                     end
                 end

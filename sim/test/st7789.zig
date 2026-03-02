@@ -102,7 +102,7 @@ test "init completes and streaming starts" {
 
     // Run through init (~14M cycles for all delays + commands)
     // SWRESET delay + SLPOUT delay + DISPON delay + reset periods
-    for (0..14_000_000) |_| dut.tick();
+    for (0..18_000_000) |_| dut.tick();
 
     // busy should now be low (streaming)
     const busy_after = getBusy(&dut);
@@ -178,7 +178,7 @@ test "pixel coordinates wrap correctly" {
     resetDut(&dut);
 
     // Skip through init (extra time for SWRESET delay)
-    for (0..14_000_000) |_| dut.tick();
+    for (0..18_000_000) |_| dut.tick();
     try std.testing.expectEqual(@as(u1, 0), getBusy(&dut));
 
     // Find a pixel_req and check that coordinates advance
