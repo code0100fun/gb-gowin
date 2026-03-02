@@ -18,11 +18,12 @@ IO_PORT "led[3]" IO_TYPE=LVCMOS33 DRIVE=8;
 IO_PORT "led[4]" IO_TYPE=LVCMOS33 DRIVE=8;
 IO_PORT "led[5]" IO_TYPE=LVCMOS33 DRIVE=8;
 
-// User buttons (active low, active internal pull-up)
+// User buttons (active high — Apicula does not apply PULL_MODE=UP,
+// so pins float low when not pressed and read 1 when pressed)
 IO_LOC "btn_s1" 88;
 IO_LOC "btn_s2" 87;
-IO_PORT "btn_s1" IO_TYPE=LVCMOS33 PULL_MODE=UP;
-IO_PORT "btn_s2" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_PORT "btn_s1" IO_TYPE=LVCMOS33;
+IO_PORT "btn_s2" IO_TYPE=LVCMOS33;
 
 // ST7789 SPI LCD (external, connected via GPIO header)
 IO_LOC "lcd_rst"  71;

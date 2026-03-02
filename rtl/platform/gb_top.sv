@@ -24,13 +24,19 @@ module gb_top #(
     // ---------------------------------------------------------------
     // Reset synchronizer (btn_s1 is async, active low)
     // ---------------------------------------------------------------
-    logic [1:0] rst_sync;
-    logic       reset;
-
+    // Power-on reset: free-running counter counts up from 0 (Gowin FF default).
+    // Reset deasserts when bit 4 is set (after 16 clocks).
+    // btn_s1 re-asserts reset when pressed. On this board btn_s1 reads 1
+    // when pressed (Apicula doesn't apply PULL_MODE=UP, so pin floats low
+    // when not pressed, and the button pulls it high).
+    logic [4:0] por_cnt;
     always_ff @(posedge clk) begin
-        rst_sync <= {rst_sync[0], ~btn_s1};
+        if (btn_s1)             // btn_s1=1 when pressed → reset
+            por_cnt <= 5'd0;
+        else if (!por_cnt[4])
+            por_cnt <= por_cnt + 5'd1;
     end
-    assign reset = rst_sync[1];
+    wire reset = !por_cnt[4];
 
     // ---------------------------------------------------------------
     // CPU ↔ bus wires
@@ -116,11 +122,8 @@ module gb_top #(
     // ROM (combinational read, distributed RAM)
     // ---------------------------------------------------------------
     logic [7:0] rom_mem [0:ROM_SIZE-1];
-    initial begin
-        for (int i = 0; i < ROM_SIZE; i++) rom_mem[i] = 8'h00;
-        if (ROM_FILE != "")
-            $readmemh(ROM_FILE, rom_mem);
-    end
+    initial if (ROM_FILE != "")
+        $readmemh(ROM_FILE, rom_mem);
     assign rom_rdata = rom_mem[rom_addr[$clog2(ROM_SIZE)-1:0]];
 
     // ---------------------------------------------------------------
