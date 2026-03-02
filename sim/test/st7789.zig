@@ -75,18 +75,18 @@ test "reset sequence" {
     try std.testing.expectEqual(@as(u1, 0), getBl(&dut));
 }
 
-test "SCLK idles high (Mode 3)" {
-    // SPI Mode 3: CPOL=1, clock idles high when not active
+test "SCLK idles low (Mode 0)" {
+    // SPI Mode 0: CPOL=0, clock idles low when not active
     var dut = try st7789_top.Model.init(.{});
     defer dut.deinit();
     resetDut(&dut);
 
-    // After reset, SCLK should be high (idle)
-    try std.testing.expectEqual(@as(u1, 1), getSclk(&dut));
+    // After reset, SCLK should be low (idle)
+    try std.testing.expectEqual(@as(u1, 0), getSclk(&dut));
 
-    // During the reset hold period, SCLK should remain high
+    // During the reset hold period, SCLK should remain low
     for (0..1000) |_| dut.tick();
-    try std.testing.expectEqual(@as(u1, 1), getSclk(&dut));
+    try std.testing.expectEqual(@as(u1, 0), getSclk(&dut));
 }
 
 test "init completes and streaming starts" {
@@ -147,7 +147,8 @@ test "SPI byte output is MSB first" {
     // DC should be 0 (command mode) for SLPOUT
     try std.testing.expectEqual(@as(u1, 0), getDc(&dut));
 
-    // Capture 8 bits: watch for falling edges of SCLK, read MOSI
+    // Capture 8 bits: watch for rising edges of SCLK, read MOSI
+    // (Mode 0: display samples MOSI on the rising edge)
     var captured: u8 = 0;
     var bits_captured: u4 = 0;
     var prev_sclk: u1 = getSclk(&dut);
@@ -155,8 +156,8 @@ test "SPI byte output is MSB first" {
     for (0..200) |_| {
         dut.tick();
         const cur_sclk = getSclk(&dut);
-        // Falling edge: MOSI is being set
-        if (prev_sclk == 1 and cur_sclk == 0) {
+        // Rising edge: display samples MOSI
+        if (prev_sclk == 0 and cur_sclk == 1) {
             captured = (captured << 1) | getMosi(&dut);
             bits_captured += 1;
             if (bits_captured == 8) break;
