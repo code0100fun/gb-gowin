@@ -100,8 +100,9 @@ test "init completes and streaming starts" {
     // busy should be high during init
     try std.testing.expectEqual(@as(u1, 1), getBusy(&dut));
 
-    // Run through init (~10.5M cycles for all delays + commands)
-    for (0..10_500_000) |_| dut.tick();
+    // Run through init (~14M cycles for all delays + commands)
+    // SWRESET delay + SLPOUT delay + DISPON delay + reset periods
+    for (0..14_000_000) |_| dut.tick();
 
     // busy should now be low (streaming)
     const busy_after = getBusy(&dut);
@@ -123,7 +124,7 @@ test "init completes and streaming starts" {
 
 test "SPI byte output is MSB first" {
     // Capture the first SPI byte sent after the reset period.
-    // The first command is SLPOUT (0x11 = 0b00010001).
+    // The first command is SWRESET (0x01 = 0b00000001).
     // Reset period: 270,001 cycles (RST low) + 3,240,001 cycles (RST high wait)
     // = 3,510,002 cycles total. Land just before S_INIT starts.
     var dut = try st7789_top.Model.init(.{});
@@ -144,7 +145,7 @@ test "SPI byte output is MSB first" {
     }
     try std.testing.expect(cs_went_low);
 
-    // DC should be 0 (command mode) for SLPOUT
+    // DC should be 0 (command mode) for SWRESET
     try std.testing.expectEqual(@as(u1, 0), getDc(&dut));
 
     // Capture 8 bits: watch for rising edges of SCLK, read MOSI
@@ -165,8 +166,8 @@ test "SPI byte output is MSB first" {
         prev_sclk = cur_sclk;
     }
 
-    print("  Captured SPI byte: 0x{x:0>2} (expect 0x11 SLPOUT)\n", .{captured});
-    try std.testing.expectEqual(@as(u8, 0x11), captured);
+    print("  Captured SPI byte: 0x{x:0>2} (expect 0x01 SWRESET)\n", .{captured});
+    try std.testing.expectEqual(@as(u8, 0x01), captured);
 }
 
 test "pixel coordinates wrap correctly" {
@@ -176,8 +177,8 @@ test "pixel coordinates wrap correctly" {
     defer dut.deinit();
     resetDut(&dut);
 
-    // Skip through init
-    for (0..10_500_000) |_| dut.tick();
+    // Skip through init (extra time for SWRESET delay)
+    for (0..14_000_000) |_| dut.tick();
     try std.testing.expectEqual(@as(u1, 0), getBusy(&dut));
 
     // Find a pixel_req and check that coordinates advance

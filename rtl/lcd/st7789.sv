@@ -112,72 +112,75 @@ module st7789 (
     //   type 01 = data byte    (DC=1)
     //   type 10 = delay (data = index: 0=10ms, 1=120ms)
     //   type 11 = end marker
-    localparam int RAMWR_IDX = 42;  // index of RAMWR entry for frame restart
+    localparam int RAMWR_IDX = 44;  // index of RAMWR entry for frame restart
     logic [5:0]  init_idx;
     logic [9:0]  init_entry;
 
     always_comb begin
         unique case (init_idx)
-            // ---- Sleep out + delay ----
-            6'd0:    init_entry = {2'b00, 8'h11};  // SLPOUT
+            // ---- Software reset + delay ----
+            6'd0:    init_entry = {2'b00, 8'h01};  // SWRESET
             6'd1:    init_entry = {2'b10, 8'h01};  // delay 120ms
+            // ---- Sleep out + delay ----
+            6'd2:    init_entry = {2'b00, 8'h11};  // SLPOUT
+            6'd3:    init_entry = {2'b10, 8'h01};  // delay 120ms
             // ---- Pixel format ----
-            6'd2:    init_entry = {2'b00, 8'h3A};  // COLMOD
-            6'd3:    init_entry = {2'b01, 8'h55};  //   RGB565
+            6'd4:    init_entry = {2'b00, 8'h3A};  // COLMOD
+            6'd5:    init_entry = {2'b01, 8'h55};  //   RGB565
             // ---- Memory access control ----
-            6'd4:    init_entry = {2'b00, 8'h36};  // MADCTL
-            6'd5:    init_entry = {2'b01, 8'h00};  //   no rotation
+            6'd6:    init_entry = {2'b00, 8'h36};  // MADCTL
+            6'd7:    init_entry = {2'b01, 8'h00};  //   no rotation
             // ---- Porch control ----
-            6'd6:    init_entry = {2'b00, 8'hB2};  // PORCTRL
-            6'd7:    init_entry = {2'b01, 8'h0C};
-            6'd8:    init_entry = {2'b01, 8'h0C};
-            6'd9:    init_entry = {2'b01, 8'h00};
-            6'd10:   init_entry = {2'b01, 8'h33};
-            6'd11:   init_entry = {2'b01, 8'h33};
+            6'd8:    init_entry = {2'b00, 8'hB2};  // PORCTRL
+            6'd9:    init_entry = {2'b01, 8'h0C};
+            6'd10:   init_entry = {2'b01, 8'h0C};
+            6'd11:   init_entry = {2'b01, 8'h00};
+            6'd12:   init_entry = {2'b01, 8'h33};
+            6'd13:   init_entry = {2'b01, 8'h33};
             // ---- Gate control ----
-            6'd12:   init_entry = {2'b00, 8'hB7};  // GCTRL
-            6'd13:   init_entry = {2'b01, 8'h35};  //   VGH=13.26V, VGL=-10.43V
+            6'd14:   init_entry = {2'b00, 8'hB7};  // GCTRL
+            6'd15:   init_entry = {2'b01, 8'h35};  //   VGH=13.26V, VGL=-10.43V
             // ---- VCOM setting ----
-            6'd14:   init_entry = {2'b00, 8'hBB};  // VCOMS
-            6'd15:   init_entry = {2'b01, 8'h19};  //   0.725V
+            6'd16:   init_entry = {2'b00, 8'hBB};  // VCOMS
+            6'd17:   init_entry = {2'b01, 8'h19};  //   0.725V
             // ---- LCM control ----
-            6'd16:   init_entry = {2'b00, 8'hC0};  // LCMCTRL
-            6'd17:   init_entry = {2'b01, 8'h2C};
+            6'd18:   init_entry = {2'b00, 8'hC0};  // LCMCTRL
+            6'd19:   init_entry = {2'b01, 8'h2C};
             // ---- VDV and VRH enable ----
-            6'd18:   init_entry = {2'b00, 8'hC2};  // VDVVRHEN
-            6'd19:   init_entry = {2'b01, 8'h01};
+            6'd20:   init_entry = {2'b00, 8'hC2};  // VDVVRHEN
+            6'd21:   init_entry = {2'b01, 8'h01};
             // ---- VRH set ----
-            6'd20:   init_entry = {2'b00, 8'hC3};  // VRHS
-            6'd21:   init_entry = {2'b01, 8'h12};  //   4.45V
+            6'd22:   init_entry = {2'b00, 8'hC3};  // VRHS
+            6'd23:   init_entry = {2'b01, 8'h12};  //   4.45V
             // ---- VDV set ----
-            6'd22:   init_entry = {2'b00, 8'hC4};  // VDVS
-            6'd23:   init_entry = {2'b01, 8'h20};  //   0V
+            6'd24:   init_entry = {2'b00, 8'hC4};  // VDVS
+            6'd25:   init_entry = {2'b01, 8'h20};  //   0V
             // ---- Frame rate control ----
-            6'd24:   init_entry = {2'b00, 8'hC6};  // FRCTRL2
-            6'd25:   init_entry = {2'b01, 8'h0F};  //   60 Hz
+            6'd26:   init_entry = {2'b00, 8'hC6};  // FRCTRL2
+            6'd27:   init_entry = {2'b01, 8'h0F};  //   60 Hz
             // ---- Power control 1 ----
-            6'd26:   init_entry = {2'b00, 8'hD0};  // PWCTRL1
-            6'd27:   init_entry = {2'b01, 8'hA4};
-            6'd28:   init_entry = {2'b01, 8'hA1};
+            6'd28:   init_entry = {2'b00, 8'hD0};  // PWCTRL1
+            6'd29:   init_entry = {2'b01, 8'hA4};
+            6'd30:   init_entry = {2'b01, 8'hA1};
             // ---- Display inversion ----
-            6'd29:   init_entry = {2'b00, 8'h21};  // INVON
+            6'd31:   init_entry = {2'b00, 8'h21};  // INVON
             // ---- Column address set ----
-            6'd30:   init_entry = {2'b00, 8'h2A};  // CASET
-            6'd31:   init_entry = {2'b01, 8'h00};  //   x_start high
-            6'd32:   init_entry = {2'b01, 8'h28};  //   x_start low  (40)
-            6'd33:   init_entry = {2'b01, 8'h00};  //   x_end high
-            6'd34:   init_entry = {2'b01, 8'hC7};  //   x_end low    (199)
+            6'd32:   init_entry = {2'b00, 8'h2A};  // CASET
+            6'd33:   init_entry = {2'b01, 8'h00};  //   x_start high
+            6'd34:   init_entry = {2'b01, 8'h28};  //   x_start low  (40)
+            6'd35:   init_entry = {2'b01, 8'h00};  //   x_end high
+            6'd36:   init_entry = {2'b01, 8'hC7};  //   x_end low    (199)
             // ---- Row address set ----
-            6'd35:   init_entry = {2'b00, 8'h2B};  // RASET
-            6'd36:   init_entry = {2'b01, 8'h00};  //   y_start high
-            6'd37:   init_entry = {2'b01, 8'h30};  //   y_start low  (48)
-            6'd38:   init_entry = {2'b01, 8'h00};  //   y_end high
-            6'd39:   init_entry = {2'b01, 8'hBF};  //   y_end low    (191)
+            6'd37:   init_entry = {2'b00, 8'h2B};  // RASET
+            6'd38:   init_entry = {2'b01, 8'h00};  //   y_start high
+            6'd39:   init_entry = {2'b01, 8'h30};  //   y_start low  (48)
+            6'd40:   init_entry = {2'b01, 8'h00};  //   y_end high
+            6'd41:   init_entry = {2'b01, 8'hBF};  //   y_end low    (191)
             // ---- Display on + delay ----
-            6'd40:   init_entry = {2'b00, 8'h29};  // DISPON
-            6'd41:   init_entry = {2'b10, 8'h01};  // delay 120ms
+            6'd42:   init_entry = {2'b00, 8'h29};  // DISPON
+            6'd43:   init_entry = {2'b10, 8'h01};  // delay 120ms
             // ---- Start pixel stream ----
-            6'd42:   init_entry = {2'b00, 8'h2C};  // RAMWR
+            6'd44:   init_entry = {2'b00, 8'h2C};  // RAMWR
             default: init_entry = {2'b11, 8'h00};  // end marker
         endcase
     end
