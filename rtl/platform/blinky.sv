@@ -18,9 +18,9 @@ module blinky (
 
     // Drive LEDs from the upper bits of the counter.
     // LEDs are active low, so invert the counter bits.
-    // When btn_s1 is pressed (low), shift to a faster blink rate.
+    // When btn_s1 is pressed (high), shift to a faster blink rate.
     always_comb begin
-        if (!btn_s1)
+        if (btn_s1)
             // Fast mode: use bits [21:16] — blinks ~8x faster
             led = ~counter[21:16];
         else

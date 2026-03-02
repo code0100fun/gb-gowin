@@ -46,7 +46,7 @@ module gb_top #(
     parameter     ROM_FILE = "sim/data/boot_test.hex"
 ) (
     input  logic       clk,        // 27 MHz
-    input  logic       btn_s1,     // reset (active low)
+    input  logic       btn_s1,     // reset (active high with Apicula)
     input  logic       btn_s2,     // unused
     output logic [5:0] led         // onboard LEDs (active low)
 );
@@ -55,25 +55,35 @@ module gb_top #(
 The parameters default to our test ROM so synthesis just works without extra
 configuration. The ports match `constraints.cst` from tutorial 02.
 
-### Reset Synchronizer
+### Power-On Reset
 
-The button is an asynchronous input — it can change at any time relative to the
-clock. Using it directly as a reset risks metastability (the flip-flop sees the
-input during its setup/hold window and enters an undefined state). A two-stage
-synchronizer eliminates this:
+The CPU needs a clean reset pulse at power-on. On the Gowin GW2AR-18, all
+flip-flops initialize to 0 via the Global Set/Reset (GSR) network. We use a
+free-running counter that counts up from 0 and deasserts reset when it
+saturates:
 
 ```systemverilog
-    logic [1:0] rst_sync;
-    logic       reset;
-
+    logic [4:0] por_cnt;
     always_ff @(posedge clk) begin
-        rst_sync <= {rst_sync[0], ~btn_s1};  // btn is active low
+        if (btn_s1)             // btn_s1=1 when pressed → reset
+            por_cnt <= 5'd0;
+        else if (!por_cnt[4])
+            por_cnt <= por_cnt + 5'd1;
     end
-    assign reset = rst_sync[1];
+    wire reset = !por_cnt[4];
 ```
 
-The `~btn_s1` inverts the active-low button to active-high reset. Two flip-flops
-in series give the metastable signal time to settle before it reaches the CPU.
+At power-on, `por_cnt` is 0 → `reset = 1`. The counter increments each clock
+cycle and reset deasserts after 16 clocks (~0.6 µs at 27 MHz). Pressing
+`btn_s1` clears the counter and re-asserts reset.
+
+**Why not a synchronizer?** A traditional two-FF synchronizer would shift in
+the idle button state on every clock. But the open-source Apicula toolchain
+does not apply `PULL_MODE=UP` from constraint files, so `btn_s1` floats low
+when not pressed and reads high when pressed (active high). A synchronizer
+that depends on the button's idle state for power-on reset won't work if the
+pin floats to an unexpected value. The counter approach is self-starting — it
+doesn't depend on any external pin to begin counting.
 
 ### CPU and Bus Wiring
 
@@ -102,11 +112,8 @@ lookup tables built from the FPGA's LUTs rather than dedicated BSRAM blocks.
 ```systemverilog
     // ROM (combinational read)
     logic [7:0] rom_mem [0:ROM_SIZE-1];
-    initial begin
-        for (int i = 0; i < ROM_SIZE; i++) rom_mem[i] = 8'h00;
-        if (ROM_FILE != "")
-            $readmemh(ROM_FILE, rom_mem);
-    end
+    initial if (ROM_FILE != "")
+        $readmemh(ROM_FILE, rom_mem);
     assign rom_rdata = rom_mem[rom_addr[$clog2(ROM_SIZE)-1:0]];
 
     // HRAM (127 bytes, combinational read, synchronous write)
@@ -187,25 +194,20 @@ care (they track all branches), but synthesis tools require every signal in an
 
 ## Simulation Testbench
 
-The testbench (`sim/test/gb_top.zig`) drives the reset button, waits 50
-cycles, and checks the LED output:
+The testbench (`sim/test/gb_top.zig`) simulates the exact FPGA power-on
+sequence: `btn_s1 = 0` (not pressed, floats low), then waits for the POR
+counter to release reset and the CPU to execute the program:
 
 ```zig
-test "boot test — LED output" {
+test "power-on reset — LED output" {
     var dut = try gb_top.Model.init(.{});
     defer dut.deinit();
 
-    // Reset: btn_s1 active low (pressed = 0)
-    dut.set(.btn_s1, 0);
+    dut.set(.btn_s1, 0); // not pressed (floats low on hardware)
     dut.set(.btn_s2, 1);
-    for (0..5) |_| dut.tick();
 
-    // Release reset
-    dut.set(.btn_s1, 1);
-    for (0..3) |_| dut.tick(); // 2-FF synchronizer propagation
-
-    // Run enough cycles for the program to complete (~14 M-cycles)
-    for (0..50) |_| dut.tick();
+    // Run enough cycles for POR (16 clocks) + program execution (~14 M-cycles)
+    for (0..100) |_| dut.tick();
 
     // LEDs are active low: led = ~led_reg[5:0].
     // Expected led_reg = 0x1F (binary 011111).
@@ -229,8 +231,8 @@ mise run flash
 ```
 
 After flashing, the five lower LEDs should light up immediately. Press S1 to
-reset — the LEDs will briefly go dark, then light up again as the CPU re-
-executes the program in under a microsecond.
+reset — the LEDs will go dark, then light up again as the POR counter releases
+reset and the CPU re-executes the program in under a microsecond.
 
 ## What's Next
 

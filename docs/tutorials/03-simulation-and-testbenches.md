@@ -133,8 +133,8 @@ test "counter increments - LEDs change over time" {
     var dut = try blinky.Model.init(.{});
     defer dut.deinit();
 
-    dut.set(.btn_s1, 1); // not pressed (active low)
-    dut.set(.btn_s2, 1);
+    dut.set(.btn_s1, 0); // not pressed (floats low with Apicula)
+    dut.set(.btn_s2, 0);
 
     const initial_led: u8 = @truncate(dut.get(.led));
 
@@ -150,8 +150,8 @@ test "normal mode - LED[0] toggles after 2^19 cycles" {
     var dut = try blinky.Model.init(.{});
     defer dut.deinit();
 
-    dut.set(.btn_s1, 1);
-    dut.set(.btn_s2, 1);
+    dut.set(.btn_s1, 0);
+    dut.set(.btn_s2, 0);
     dut.tick();
 
     const led_before: u8 = @truncate(dut.get(.led));
@@ -166,8 +166,8 @@ test "fast mode - LED[0] toggles after 2^16 cycles when S1 pressed" {
     var dut = try blinky.Model.init(.{});
     defer dut.deinit();
 
-    dut.set(.btn_s1, 0); // pressed (active low)
-    dut.set(.btn_s2, 1);
+    dut.set(.btn_s1, 1); // pressed (active high with Apicula)
+    dut.set(.btn_s2, 0);
     dut.tick();
 
     const led_before: u8 = @truncate(dut.get(.led));
@@ -183,13 +183,13 @@ test "releasing S1 returns to normal mode" {
     defer dut.deinit();
 
     // Start in fast mode
-    dut.set(.btn_s1, 0);
-    dut.set(.btn_s2, 1);
+    dut.set(.btn_s1, 1);
+    dut.set(.btn_s2, 0);
     var i: u32 = 0;
     while (i < (1 << 16)) : (i += 1) dut.tick();
 
     // Release button
-    dut.set(.btn_s1, 1);
+    dut.set(.btn_s1, 0);
     dut.tick();
 
     const led_before: u8 = @truncate(dut.get(.led));
@@ -277,7 +277,7 @@ You should see:
 - `counter` incrementing every rising edge
 - `led` bits changing at different rates (each bit is half the frequency of the
   bit below it)
-- The LED pattern shifting to faster bits when `btn_s1` goes low
+- The LED pattern shifting to faster bits when `btn_s1` goes high
 
 ### Pro Tips for Surfer
 

@@ -23,12 +23,14 @@ off).
 | `led[3]` | 18  | LED 3 |
 | `led[4]` | 19  | LED 4 |
 | `led[5]` | 20  | LED 5 |
-| `btn_s1`  | 88  | User button S1 (active low) |
-| `btn_s2`  | 87  | User button S2 (active low) |
+| `btn_s1`  | 88  | User button S1 |
+| `btn_s2`  | 87  | User button S2 |
 
 The LEDs on the Tang Nano 20K are active low — driving a pin LOW turns the LED
-ON. The buttons are also active low with internal pull-ups — they read LOW when
-pressed.
+ON. The Sipeed documentation describes the buttons as active low with internal
+pull-ups, but the open-source Apicula toolchain does not apply `PULL_MODE=UP`
+from constraint files. In practice the pins float low when not pressed and
+read HIGH when pressed — effectively **active high**.
 
 ## Step 1: Write the Constraint File
 
@@ -54,8 +56,8 @@ IO_PORT "led[5]" IO_TYPE=LVCMOS33 DRIVE=8;
 
 IO_LOC "btn_s1" 88;
 IO_LOC "btn_s2" 87;
-IO_PORT "btn_s1" IO_TYPE=LVCMOS33 PULL_MODE=UP;
-IO_PORT "btn_s2" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_PORT "btn_s1" IO_TYPE=LVCMOS33;
+IO_PORT "btn_s2" IO_TYPE=LVCMOS33;
 ```
 
 Let's break down the syntax:
@@ -96,9 +98,9 @@ module blinky (
 
     // Drive LEDs from the upper bits of the counter.
     // LEDs are active low, so invert the counter bits.
-    // When btn_s1 is pressed (low), shift to a faster blink rate.
+    // When btn_s1 is pressed (high), shift to a faster blink rate.
     always_comb begin
-        if (!btn_s1)
+        if (btn_s1)
             // Fast mode: use bits [21:16] — blinks ~8x faster
             led = ~counter[21:16];
         else
@@ -124,7 +126,7 @@ module blinky (
 
 This declares a module named `blinky` with:
 - `clk` — the 27 MHz clock input
-- `btn_s1`, `btn_s2` — the two user buttons (active low)
+- `btn_s1`, `btn_s2` — the two user buttons (active high with Apicula)
 - `led[5:0]` — the six LED outputs
 
 The signal names here must match the names in the constraint file exactly.
