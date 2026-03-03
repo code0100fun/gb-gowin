@@ -7,7 +7,7 @@
 // Memory map (active regions this tutorial):
 //   0000-7FFF  ROM (32 KB)        — active
 //   8000-9FFF  VRAM (8 KB)        — active
-//   A000-BFFF  External RAM       — stub (returns FF)
+//   A000-BFFF  External RAM       — active (MBC1 gated)
 //   C000-DFFF  WRAM (8 KB)        — active
 //   E000-FDFF  Echo RAM           — mirrors WRAM
 //   FE00-FE9F  OAM (160 bytes)    — active
@@ -64,6 +64,13 @@ module bus (
     output logic [7:0]  oam_wdata,
     input  logic [7:0]  oam_rdata,
 
+    // External RAM (A000-BFFF)
+    output logic        extram_cs,
+    output logic        extram_we,
+    output logic [7:0]  extram_wdata,
+    input  logic [7:0]  extram_rdata,
+    input  logic        extram_en,     // from MBC1: RAM enabled
+
     // IE register (FFFF)
     output logic        ie_cs,
     output logic        ie_we,
@@ -76,8 +83,9 @@ module bus (
     assign wram_wdata = cpu_wdata;
     assign hram_wdata = cpu_wdata;
     assign io_wdata   = cpu_wdata;
-    assign oam_wdata  = cpu_wdata;
-    assign ie_wdata   = cpu_wdata;
+    assign oam_wdata    = cpu_wdata;
+    assign extram_wdata = cpu_wdata;
+    assign ie_wdata     = cpu_wdata;
 
     always_comb begin
         // Defaults: nothing selected, open bus
@@ -87,6 +95,7 @@ module bus (
         hram_cs  = 1'b0;
         io_cs    = 1'b0;
         oam_cs   = 1'b0;
+        extram_cs = 1'b0;
         ie_cs    = 1'b0;
 
         rom_addr  = cpu_addr[14:0];
@@ -99,7 +108,8 @@ module bus (
         vram_we = 1'b0;
         wram_we = 1'b0;
         hram_we = 1'b0;
-        oam_we  = 1'b0;
+        oam_we    = 1'b0;
+        extram_we = 1'b0;
         io_rd   = 1'b0;
         io_wr   = 1'b0;
         ie_we   = 1'b0;
@@ -123,9 +133,15 @@ module bus (
                 cpu_rdata = vram_rdata;
             end
 
-            // External RAM: A000-BFFF (stub)
+            // External RAM: A000-BFFF
             16'b101?_????_????_????: begin
-                cpu_rdata = 8'hFF;
+                if (extram_en) begin
+                    extram_cs = 1'b1;
+                    extram_we = cpu_wr;
+                    cpu_rdata = extram_rdata;
+                end else begin
+                    cpu_rdata = 8'hFF;
+                end
             end
 
             // WRAM: C000-DFFF

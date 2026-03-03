@@ -79,7 +79,7 @@ descriptions of scope and goals.
 
 ## Cartridge and External Memory (20–22)
 
-- [ ] **20 — MBC1 Mapper**: Bank switching for ROM (up to 2 MB) and optional
+- [x] **20 — MBC1 Mapper**: Bank switching for ROM (up to 2 MB) and optional
   RAM (up to 32 KB). Register writes at 0000–7FFF to control bank select.
   Mode 0 (ROM banking) and Mode 1 (RAM banking). Enough to run most classic
   titles.

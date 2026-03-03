@@ -59,9 +59,11 @@ module gb_top #(
     logic        cpu_rd, cpu_wr;
     logic [7:0]  cpu_wdata, cpu_rdata;
 
-    logic [14:0] rom_addr;
+    logic [14:0] rom_addr;       // bus output (unused — MBC1 provides translated addr)
     logic        rom_cs;
     logic [7:0]  rom_rdata;
+
+    logic [20:0] mbc_rom_addr;  // MBC1 translated ROM address
 
     logic [12:0] vram_addr;
     logic        vram_cs, vram_we;
@@ -82,6 +84,11 @@ module gb_top #(
     logic [7:0]  oam_addr;
     logic        oam_cs, oam_we;
     logic [7:0]  oam_wdata, oam_rdata;
+
+    logic        extram_cs, extram_we;
+    logic [7:0]  extram_wdata, extram_rdata;
+    logic [14:0] extram_addr;
+    logic        extram_en;
 
     logic        ie_cs, ie_we;
     logic [7:0]  ie_wdata, ie_rdata;
@@ -138,8 +145,29 @@ module gb_top #(
         .io_wr     (io_wr),     .io_wdata(io_wdata), .io_rdata  (io_rdata),
         .oam_addr  (oam_addr),  .oam_cs (oam_cs),   .oam_we    (oam_we),
         .oam_wdata (oam_wdata), .oam_rdata(oam_rdata),
+        .extram_cs (extram_cs), .extram_we(extram_we),
+        .extram_wdata(extram_wdata), .extram_rdata(extram_rdata),
+        .extram_en (extram_en),
         .ie_cs     (ie_cs),     .ie_we  (ie_we),
         .ie_wdata  (ie_wdata),  .ie_rdata(ie_rdata)
+    );
+
+    // ---------------------------------------------------------------
+    // MBC1 mapper — bank registers + address translation
+    // ---------------------------------------------------------------
+    mbc1 u_mbc1 (
+        .clk          (clk),
+        .reset        (reset),
+        .cpu_addr     (cpu_addr),
+        .cpu_wr       (cpu_wr),
+        .cpu_wdata    (cpu_wdata),
+        .rom_addr     (mbc_rom_addr),
+        .extram_addr  (extram_addr),
+        .extram_en    (extram_en),
+        .dbg_rom_bank (),
+        .dbg_ram_bank (),
+        .dbg_bank_mode(),
+        .dbg_ram_en   ()
     );
 
     // ---------------------------------------------------------------
@@ -148,7 +176,7 @@ module gb_top #(
     logic [7:0] rom_mem [0:ROM_SIZE-1];
     initial if (ROM_FILE != "")
         $readmemh(ROM_FILE, rom_mem);
-    assign rom_rdata = rom_mem[rom_addr[$clog2(ROM_SIZE)-1:0]];
+    assign rom_rdata = rom_mem[mbc_rom_addr[$clog2(ROM_SIZE)-1:0]];
 
     // ---------------------------------------------------------------
     // WRAM — 8 KB BSRAM (synchronous reads, 1-cycle latency)
@@ -159,6 +187,17 @@ module gb_top #(
         .addr (wram_addr),
         .wdata(wram_wdata),
         .rdata(wram_rdata)
+    );
+
+    // ---------------------------------------------------------------
+    // External RAM — 32 KB BSRAM (MBC1: 4 banks × 8 KB)
+    // ---------------------------------------------------------------
+    single_port_ram #(.ADDR_WIDTH(15), .DATA_WIDTH(8)) u_extram (
+        .clk  (clk),
+        .we   (extram_cs && extram_we),
+        .addr (extram_addr),
+        .wdata(extram_wdata),
+        .rdata(extram_rdata)
     );
 
     // ---------------------------------------------------------------
@@ -174,17 +213,18 @@ module gb_top #(
     // ---------------------------------------------------------------
     // BSRAM wait-state generation
     // ---------------------------------------------------------------
-    // VRAM and WRAM use synchronous BSRAM — reads take 1 extra cycle.
-    // Cycle 0: CPU reads VRAM/WRAM → mem_wait=1, CPU freezes.
+    // VRAM, WRAM, and External RAM use synchronous BSRAM — reads take
+    // 1 extra cycle. Cycle 0: CPU reads → mem_wait=1, CPU freezes.
     // Cycle 1: bsram_read_done=1 → mem_wait=0, data valid, CPU proceeds.
     logic bsram_read_done;
+    wire bsram_rd = (vram_cs || wram_cs || extram_cs) && cpu_rd;
     always_ff @(posedge clk) begin
         if (reset)
             bsram_read_done <= 1'b0;
         else
-            bsram_read_done <= (vram_cs || wram_cs) && cpu_rd && !bsram_read_done;
+            bsram_read_done <= bsram_rd && !bsram_read_done;
     end
-    wire mem_wait = (vram_cs || wram_cs) && cpu_rd && !bsram_read_done;
+    wire mem_wait = bsram_rd && !bsram_read_done;
 
     // ---------------------------------------------------------------
     // I/O registers

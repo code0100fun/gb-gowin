@@ -130,6 +130,12 @@ module cpu_bus_top #(
         .oam_wdata (oam_wdata),
         .oam_rdata (oam_rdata),
 
+        .extram_cs (),
+        .extram_we (),
+        .extram_wdata(),
+        .extram_rdata(8'hFF),
+        .extram_en (1'b0),
+
         .ie_cs     (ie_cs),
         .ie_we     (ie_we),
         .ie_wdata  (ie_wdata),

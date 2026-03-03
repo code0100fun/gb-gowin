@@ -123,6 +123,7 @@ pub fn build(b: *std.Build) void {
             "-Wno-UNUSEDSIGNAL",
             "-Wno-CASEOVERLAP",
             "-Wno-UNOPTFLAT",
+            "-Wno-PINCONNECTEMPTY",
             "-GROM_SIZE=64",
             "-GROM_FILE=\"sim/data/cpu_bus_test.hex\"",
         },
@@ -147,6 +148,7 @@ pub fn build(b: *std.Build) void {
             "-Wno-UNUSEDSIGNAL",
             "-Wno-CASEOVERLAP",
             "-Wno-UNOPTFLAT",
+            "-Wno-PINCONNECTEMPTY",
             "--prefix",
             "Vint_bus_top",
             "-GROM_SIZE=128",
@@ -173,6 +175,7 @@ pub fn build(b: *std.Build) void {
             "-Wno-UNUSEDSIGNAL",
             "-Wno-CASEOVERLAP",
             "-Wno-UNOPTFLAT",
+            "-Wno-PINCONNECTEMPTY",
             "-GROM_SIZE=256",
             "-GROM_FILE=\"sim/data/timer_test.hex\"",
         },
@@ -274,6 +277,22 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const mbc1_mod = verilator.addModel(b, .{
+        .name = "mbc1_top",
+        .sources = &.{
+            "sim/top/mbc1_top.sv",
+            "rtl/cart/mbc1.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+            "-Wno-PINCONNECTEMPTY",
+        },
+    });
+
     const gb_top_mod = verilator.addModel(b, .{
         .name = "gb_top",
         .sources = &.{
@@ -288,6 +307,7 @@ pub fn build(b: *std.Build) void {
             "rtl/io/uart_rx.sv",
             "rtl/io/debug_console.sv",
             "rtl/io/serial.sv",
+            "rtl/cart/mbc1.sv",
             "rtl/core/bus.sv",
             "rtl/core/cpu/cpu.sv",
             "rtl/core/cpu/regfile.sv",
@@ -330,6 +350,7 @@ pub fn build(b: *std.Build) void {
         .{ "sim/test/uart.zig", "uart_top", uart_mod, "test:uart" },
         .{ "sim/test/debug_console.zig", "debug_console_top", debug_console_mod, "test:debug_console" },
         .{ "sim/test/serial.zig", "serial_top", serial_mod, "test:serial" },
+        .{ "sim/test/mbc1.zig", "mbc1_top", mbc1_mod, "test:mbc1" },
         .{ "sim/test/gb_top.zig", "gb_top", gb_top_mod, "test:gb_top" },
     };
 
