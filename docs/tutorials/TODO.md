@@ -43,7 +43,7 @@ descriptions of scope and goals.
   logic. Five interrupt sources (VBlank, STAT, Timer, Serial, Joypad) wired
   as active-high request lines.
 
-## Peripherals (11–18)
+## Peripherals (11–19)
 
 - [x] **11 — Timer**: DIV register (FF04) free-running at 16384 Hz. TIMA/TMA/TAC
   (FF05–FF07) programmable timer with four selectable frequencies. Timer
@@ -69,36 +69,40 @@ descriptions of scope and goals.
 - [x] **17 — Joypad Input**: 8 pushbuttons on breadboard GPIO mapped to the
   JOYP register (FF00). Column/row multiplexing matching the original Game
   Boy matrix. Debouncing. Joypad interrupt on button press.
-- [ ] **18 — Serial Port**: Minimal serial (link cable) implementation. SB/SC
+- [x] **18 — Debug UART Console**: UART TX/RX modules connected to the Tang
+  Nano 20K's BL616 USB bridge (pins 69/70). Command-driven debug console
+  that dumps CPU registers and interrupt state to a terminal. Commands:
+  `?` (help), `p` (PC), `r` (full register dump).
+- [ ] **19 — Serial Port**: Minimal serial (link cable) implementation. SB/SC
   registers (FF01–FF02). Internal clock mode for single-player games that
   check serial. Serial interrupt.
 
-## Cartridge and External Memory (19–21)
+## Cartridge and External Memory (20–22)
 
-- [ ] **19 — MBC1 Mapper**: Bank switching for ROM (up to 2 MB) and optional
+- [ ] **20 — MBC1 Mapper**: Bank switching for ROM (up to 2 MB) and optional
   RAM (up to 32 KB). Register writes at 0000–7FFF to control bank select.
   Mode 0 (ROM banking) and Mode 1 (RAM banking). Enough to run most classic
   titles.
-- [ ] **20 — SD Card ROM Loading**: SPI SD card reader. FAT32 file listing on
+- [ ] **21 — SD Card ROM Loading**: SPI SD card reader. FAT32 file listing on
   the ST7789 display with joypad selection. Load a .gb ROM from SD into
   SDRAM. Replace the BRAM boot ROM with a proper boot menu.
-- [ ] **21 — SDRAM Controller**: Interface to the Tang Nano 20K's on-board
+- [ ] **22 — SDRAM Controller**: Interface to the Tang Nano 20K's on-board
   HY57V641620F 64Mbit SDRAM. Initialization sequence, read/write burst
   timing, refresh. Map cartridge ROM and external RAM through SDRAM for
   games larger than BRAM allows.
 
-## Audio (22)
+## Audio (23)
 
-- [ ] **22 — Audio (Channels 1–4)**: Square wave channels 1–2 (with sweep on
+- [ ] **23 — Audio (Channels 1–4)**: Square wave channels 1–2 (with sweep on
   ch1), wave channel 3 (custom waveform), noise channel 4 (LFSR). NR1x–NR5x
   registers. Channel mixing into a single output. PWM DAC on a GPIO pin.
 
-## System Integration (23–24)
+## System Integration (24–25)
 
-- [ ] **23 — DMA and System Polish**: OAM DMA (FF46) transferring 160 bytes in
+- [ ] **24 — DMA and System Polish**: OAM DMA (FF46) transferring 160 bytes in
   160 M-cycles with bus conflict handling. Remaining I/O register stubs.
   Edge cases and accuracy fixes found during game testing.
-- [ ] **24 — Running Real Games**: End-to-end testing with Tetris, Dr. Mario,
+- [ ] **25 — Running Real Games**: End-to-end testing with Tetris, Dr. Mario,
   and other DMG titles. Debugging workflow for when games break. Performance
   profiling and FPGA resource usage. Where to go next (GBC, link cable,
   save states).

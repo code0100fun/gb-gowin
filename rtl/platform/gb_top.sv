@@ -28,7 +28,11 @@ module gb_top #(
     input  logic       btn_a,
     input  logic       btn_b,
     input  logic       btn_select,
-    input  logic       btn_start
+    input  logic       btn_start,
+
+    // UART debug console (BL616 USB bridge, pins 69/70)
+    output logic       uart_tx,
+    input  logic       uart_rx
 );
 
     // ---------------------------------------------------------------
@@ -91,6 +95,10 @@ module gb_top #(
     // ---------------------------------------------------------------
     // CPU
     // ---------------------------------------------------------------
+    // CPU debug wires
+    logic [15:0] dbg_pc, dbg_sp;
+    logic [7:0]  dbg_a, dbg_f, dbg_b, dbg_c, dbg_d, dbg_e, dbg_h, dbg_l;
+
     cpu u_cpu (
         .clk      (clk),
         .reset    (reset),
@@ -103,11 +111,11 @@ module gb_top #(
         .int_req  (int_req),
         .int_ack  (int_ack),
         .halted   (halted),
-        .dbg_pc   (), .dbg_sp(),
-        .dbg_a    (), .dbg_f (),
-        .dbg_b    (), .dbg_c (),
-        .dbg_d    (), .dbg_e (),
-        .dbg_h    (), .dbg_l ()
+        .dbg_pc   (dbg_pc), .dbg_sp(dbg_sp),
+        .dbg_a    (dbg_a),  .dbg_f (dbg_f),
+        .dbg_b    (dbg_b),  .dbg_c (dbg_c),
+        .dbg_d    (dbg_d),  .dbg_e (dbg_e),
+        .dbg_h    (dbg_h),  .dbg_l (dbg_l)
     );
 
     // ---------------------------------------------------------------
@@ -344,6 +352,29 @@ module gb_top #(
         .pixel_data_valid (lcd_pixel_ready),
         .irq_vblank       (ppu_irq_vblank),
         .irq_stat         (ppu_irq_stat)
+    );
+
+    // ---------------------------------------------------------------
+    // Debug UART console
+    // ---------------------------------------------------------------
+    debug_console u_debug (
+        .clk         (clk),
+        .reset       (reset),
+        .uart_rx_pin (uart_rx),
+        .uart_tx_pin (uart_tx),
+        .dbg_pc      (dbg_pc),
+        .dbg_sp      (dbg_sp),
+        .dbg_a       (dbg_a),
+        .dbg_f       (dbg_f),
+        .dbg_b       (dbg_b),
+        .dbg_c       (dbg_c),
+        .dbg_d       (dbg_d),
+        .dbg_e       (dbg_e),
+        .dbg_h       (dbg_h),
+        .dbg_l       (dbg_l),
+        .dbg_halted  (halted),
+        .dbg_if      ({3'b111, if_reg}),
+        .dbg_ie      (ie_reg)
     );
 
     // ---------------------------------------------------------------

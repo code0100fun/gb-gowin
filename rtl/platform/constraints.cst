@@ -39,6 +39,12 @@ IO_PORT "lcd_sclk" IO_TYPE=LVCMOS33 DRIVE=8;
 IO_PORT "lcd_mosi" IO_TYPE=LVCMOS33 DRIVE=8;
 IO_PORT "lcd_bl"   IO_TYPE=LVCMOS33 DRIVE=8;
 
+// UART debug console (BL616 USB bridge — internal board traces)
+IO_LOC "uart_tx" 69;
+IO_LOC "uart_rx" 70;
+IO_PORT "uart_tx" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "uart_rx" IO_TYPE=LVCMOS33;
+
 // Joypad buttons (active high — breadboard pushbuttons to 3.3V)
 IO_LOC "btn_right"  25;
 IO_LOC "btn_left"   26;

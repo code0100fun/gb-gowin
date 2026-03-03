@@ -225,6 +225,39 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const uart_mod = verilator.addModel(b, .{
+        .name = "uart_top",
+        .sources = &.{
+            "sim/top/uart_top.sv",
+            "rtl/io/uart_tx.sv",
+            "rtl/io/uart_rx.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+        },
+    });
+
+    const debug_console_mod = verilator.addModel(b, .{
+        .name = "debug_console_top",
+        .sources = &.{
+            "sim/top/debug_console_top.sv",
+            "rtl/io/debug_console.sv",
+            "rtl/io/uart_tx.sv",
+            "rtl/io/uart_rx.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+        },
+    });
+
     const gb_top_mod = verilator.addModel(b, .{
         .name = "gb_top",
         .sources = &.{
@@ -235,6 +268,9 @@ pub fn build(b: *std.Build) void {
             "rtl/lcd/st7789.sv",
             "rtl/io/timer.sv",
             "rtl/io/joypad.sv",
+            "rtl/io/uart_tx.sv",
+            "rtl/io/uart_rx.sv",
+            "rtl/io/debug_console.sv",
             "rtl/core/bus.sv",
             "rtl/core/cpu/cpu.sv",
             "rtl/core/cpu/regfile.sv",
@@ -274,6 +310,8 @@ pub fn build(b: *std.Build) void {
         .{ "sim/test/st7789.zig", "st7789_top", st7789_mod, "test:st7789" },
         .{ "sim/test/joypad.zig", "joypad_top", joypad_mod, "test:joypad" },
         .{ "sim/test/ppu.zig", "ppu_top", ppu_mod, "test:ppu" },
+        .{ "sim/test/uart.zig", "uart_top", uart_mod, "test:uart" },
+        .{ "sim/test/debug_console.zig", "debug_console_top", debug_console_mod, "test:debug_console" },
         .{ "sim/test/gb_top.zig", "gb_top", gb_top_mod, "test:gb_top" },
     };
 

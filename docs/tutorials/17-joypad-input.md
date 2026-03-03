@@ -225,6 +225,7 @@ Seven tests verify the joypad module:
 
 ## What's Next
 
-Tutorial 18 adds a minimal serial port implementation — SB and SC registers
-(FF01–FF02) with internal clock mode, enough for single-player games that
-check the serial hardware.
+Tutorial 18 adds a UART debug console — a transmitter, receiver, and command
+processor connected to the Tang Nano 20K's built-in USB bridge. Type `r` in
+a terminal to dump all CPU registers and interrupt state. This will be
+invaluable for debugging the MBC1 mapper and real game ROMs that follow.
