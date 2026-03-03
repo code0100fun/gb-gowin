@@ -73,7 +73,7 @@ descriptions of scope and goals.
   Nano 20K's BL616 USB bridge (pins 69/70). Command-driven debug console
   that dumps CPU registers and interrupt state to a terminal. Commands:
   `?` (help), `p` (PC), `r` (full register dump).
-- [ ] **19 — Serial Port**: Minimal serial (link cable) implementation. SB/SC
+- [x] **19 — Serial Port**: Minimal serial (link cable) implementation. SB/SC
   registers (FF01–FF02). Internal clock mode for single-player games that
   check serial. Serial interrupt.
 

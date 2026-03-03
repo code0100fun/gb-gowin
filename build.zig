@@ -241,6 +241,22 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const serial_mod = verilator.addModel(b, .{
+        .name = "serial_top",
+        .sources = &.{
+            "sim/top/serial_top.sv",
+            "rtl/io/serial.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+            "-Wno-PINCONNECTEMPTY",
+        },
+    });
+
     const debug_console_mod = verilator.addModel(b, .{
         .name = "debug_console_top",
         .sources = &.{
@@ -271,6 +287,7 @@ pub fn build(b: *std.Build) void {
             "rtl/io/uart_tx.sv",
             "rtl/io/uart_rx.sv",
             "rtl/io/debug_console.sv",
+            "rtl/io/serial.sv",
             "rtl/core/bus.sv",
             "rtl/core/cpu/cpu.sv",
             "rtl/core/cpu/regfile.sv",
@@ -312,6 +329,7 @@ pub fn build(b: *std.Build) void {
         .{ "sim/test/ppu.zig", "ppu_top", ppu_mod, "test:ppu" },
         .{ "sim/test/uart.zig", "uart_top", uart_mod, "test:uart" },
         .{ "sim/test/debug_console.zig", "debug_console_top", debug_console_mod, "test:debug_console" },
+        .{ "sim/test/serial.zig", "serial_top", serial_mod, "test:serial" },
         .{ "sim/test/gb_top.zig", "gb_top", gb_top_mod, "test:gb_top" },
     };
 

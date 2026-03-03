@@ -195,7 +195,7 @@ module gb_top #(
     always_ff @(posedge clk) begin
         if (reset)
             led_reg <= 8'h00;
-        else if (io_cs && io_wr && io_addr == 7'h01)
+        else if (io_cs && io_wr && io_addr == 7'h50)
             led_reg <= io_wdata;
     end
 
@@ -249,6 +249,27 @@ module gb_top #(
     );
 
     // ---------------------------------------------------------------
+    // Serial port (FF01–FF02)
+    // ---------------------------------------------------------------
+    logic [7:0] serial_rdata;
+    logic       serial_rdata_valid;
+    logic       serial_irq;
+
+    serial u_serial (
+        .clk            (clk),
+        .reset          (reset),
+        .io_cs          (io_cs),
+        .io_addr        (io_addr),
+        .io_wr          (io_wr),
+        .io_wdata       (io_wdata),
+        .io_rdata       (serial_rdata),
+        .io_rdata_valid (serial_rdata_valid),
+        .irq            (serial_irq),
+        .dbg_sb         (),
+        .dbg_sc         ()
+    );
+
+    // ---------------------------------------------------------------
     // IF register (FF0F) — interrupt flags
     // ---------------------------------------------------------------
     logic [4:0] if_reg;
@@ -262,6 +283,7 @@ module gb_top #(
         if (ppu_irq_vblank) next_if = next_if | 5'b00001;
         if (ppu_irq_stat)   next_if = next_if | 5'b00010;
         if (timer_irq)      next_if = next_if | 5'b00100;
+        if (serial_irq)     next_if = next_if | 5'b01000;
         if (joypad_irq)     next_if = next_if | 5'b10000;
         if (io_cs && io_wr && io_addr == 7'h0F)
             next_if = io_wdata[4:0];
@@ -284,9 +306,11 @@ module gb_top #(
             io_rdata = timer_rdata;
         else if (joypad_rdata_valid)
             io_rdata = joypad_rdata;
+        else if (serial_rdata_valid)
+            io_rdata = serial_rdata;
         else begin
             unique case (io_addr)
-                7'h01:   io_rdata = led_reg;
+                7'h50:   io_rdata = led_reg;
                 7'h0F:   io_rdata = {3'b111, if_reg};
                 default: io_rdata = 8'h00;
             endcase
