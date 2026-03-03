@@ -39,18 +39,18 @@ module sd_boot_top (
     logic        sd_error;
     logic        sd_sdhc;
 
-    // --- ROM BSRAM write port (from sd_boot) ---
-    logic [14:0] rom_wr_addr;
+    // --- ROM write port (from sd_boot — SDRAM address width) ---
+    logic [22:0] rom_wr_addr;
     logic [7:0]  rom_wr_data;
     logic        rom_wr;
 
     // --- ROM BSRAM (32 KB) ---
     logic [7:0] rom_mem [0:32767];
 
-    // Write port
+    // Write port (use low 15 bits — test data fits in 32 KB)
     always_ff @(posedge clk) begin
         if (rom_wr)
-            rom_mem[rom_wr_addr] <= rom_wr_data;
+            rom_mem[rom_wr_addr[14:0]] <= rom_wr_data;
     end
 
     // Read port
@@ -109,6 +109,7 @@ module sd_boot_top (
         .rom_addr      (rom_wr_addr),
         .rom_data      (rom_wr_data),
         .rom_wr        (rom_wr),
+        .sdram_busy    (1'b0),         // no backpressure in test
         .done          (done),
         .boot_error    (boot_error),
         .error_code    (error_code)

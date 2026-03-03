@@ -3,7 +3,8 @@
 // Waits for sd_reader initialization, then reads sector 0, auto-
 // detects MBR vs VBR (super floppy), parses FAT32 parameters, scans
 // root directory to find the first .gb file. Loads the ROM data into
-// BSRAM via a write port. Minimal FAT32: root directory only,
+// SDRAM via a write port (with backpressure). Supports ROMs up to
+// 2 MB (full MBC1 range). Minimal FAT32: root directory only,
 // 8.3 names, follows cluster chain.
 module sd_boot (
     input  logic        clk,
@@ -18,10 +19,11 @@ module sd_boot (
     input  logic        sd_ready,
     input  logic        sd_error,
 
-    // ROM BSRAM write port
-    output logic [14:0] rom_addr,
+    // SDRAM write port
+    output logic [22:0] rom_addr,
     output logic [7:0]  rom_data,
     output logic        rom_wr,
+    input  logic        sdram_busy,   // backpressure from SDRAM controller
 
     // Status
     output logic        done,         // ROM loaded, CPU can start
@@ -89,6 +91,11 @@ module sd_boot (
     logic [31:0] rom_file_size;
     logic [7:0]  cluster_sector; // sector within current cluster
     logic [31:0] next_cluster;   // from FAT lookup
+    logic [7:0]  pending_byte;   // buffered byte waiting for SDRAM
+    logic        pending_wr;     // pending_byte needs to be written
+
+    // FAT entry byte offset within sector (cluster_index * 4)
+    wire [8:0] fat_offset = {file_cluster[6:0], 2'b00};
 
     // Helper: cluster to LBA
     function automatic [31:0] cluster_to_lba(input logic [31:0] cluster);
@@ -108,7 +115,7 @@ module sd_boot (
             state          <= S_WAIT_READY;
             sd_read_start  <= 1'b0;
             sd_sector      <= 32'd0;
-            rom_addr       <= 15'd0;
+            rom_addr       <= 23'd0;
             rom_data       <= 8'd0;
             rom_wr         <= 1'b0;
             done           <= 1'b0;
@@ -120,9 +127,19 @@ module sd_boot (
             byte_cnt       <= 9'd0;
             file_found     <= 1'b0;
             rom_bytes_loaded <= 32'd0;
+            pending_wr     <= 1'b0;
         end else begin
             sd_read_start <= 1'b0;
             rom_wr        <= 1'b0;
+
+            // Drain pending byte to SDRAM when not busy
+            if (pending_wr && !sdram_busy) begin
+                rom_addr   <= rom_bytes_loaded[22:0];
+                rom_data   <= pending_byte;
+                rom_wr     <= 1'b1;
+                pending_wr <= 1'b0;
+                rom_bytes_loaded <= rom_bytes_loaded + 32'd1;
+            end
 
             // Track byte position within sector
             if (sd_read_valid && sector_reading)
@@ -350,10 +367,9 @@ module sd_boot (
                 // Load ROM data — read cluster chain
                 // =============================================================
                 S_LOAD_ROM: begin
-                    if (!sector_reading && !sd_read_start) begin
-                        if (rom_bytes_loaded >= rom_file_size ||
-                            rom_bytes_loaded >= 32'd32768) begin
-                            // Done loading
+                    if (!sector_reading && !sd_read_start && !pending_wr) begin
+                        if (rom_bytes_loaded >= rom_file_size) begin
+                            // All bytes written to SDRAM
                             state <= S_DONE;
                         end else begin
                             // Read next sector of current cluster
@@ -365,12 +381,9 @@ module sd_boot (
                     end
 
                     if (sd_read_valid) begin
-                        if (rom_bytes_loaded < 32'd32768 &&
-                            rom_bytes_loaded < rom_file_size) begin
-                            rom_addr <= rom_bytes_loaded[14:0];
-                            rom_data <= sd_read_data;
-                            rom_wr   <= 1'b1;
-                            rom_bytes_loaded <= rom_bytes_loaded + 32'd1;
+                        if (rom_bytes_loaded < rom_file_size) begin
+                            pending_byte <= sd_read_data;
+                            pending_wr   <= 1'b1;
                         end
                     end
 
@@ -402,9 +415,6 @@ module sd_boot (
                     end
 
                     if (sd_read_valid) begin
-                        // FAT entry offset = (file_cluster[6:0]) * 4
-                        // We need bytes at offsets: base, base+1, base+2, base+3
-                        automatic logic [8:0] fat_offset = {file_cluster[6:0], 2'b00};
                         if (byte_cnt == fat_offset)
                             next_cluster[7:0]   <= sd_read_data;
                         if (byte_cnt == fat_offset + 9'd1)

@@ -87,7 +87,7 @@ descriptions of scope and goals.
   and sector read (sd_reader), minimal FAT32 parser (sd_boot). Auto-loads the
   first .gb file from the SD card root directory into 32 KB BSRAM ROM. CPU held
   in reset until boot completes. Behavioral SD card model for simulation.
-- [ ] **22 — SDRAM Controller**: Interface to the Tang Nano 20K's on-board
+- [x] **22 — SDRAM Controller**: Interface to the Tang Nano 20K's on-board
   HY57V641620F 64Mbit SDRAM. Initialization sequence, read/write burst
   timing, refresh. Map cartridge ROM and external RAM through SDRAM for
   games larger than BRAM allows.

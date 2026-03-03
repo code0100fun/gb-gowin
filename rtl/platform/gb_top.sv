@@ -3,10 +3,15 @@
 // Wires CPU → bus → ROM / WRAM / HRAM with an LED register for
 // visible output. VRAM and WRAM use BSRAM (synchronous reads);
 // the CPU pauses for one cycle via mem_wait during BSRAM reads.
+//
+// When USE_SD=1 (synthesis): ROM and External RAM are backed by SDRAM
+// (up to 2 MB ROM, 32 KB ExtRAM). sd_boot loads ROM from SD card into
+// SDRAM, then CPU reads through the SDRAM controller. SDRAM reads take
+// ~5 cycles (vs 1 for BSRAM). VRAM/WRAM stay in BSRAM.
 module gb_top #(
     parameter int ROM_SIZE = 256,
     parameter     ROM_FILE = "sim/data/boot_test.hex",
-    parameter int USE_SD   = 0     // 0=embedded ROM, 1=SD card boot
+    parameter int USE_SD   = 0     // 0=embedded ROM, 1=SD card boot + SDRAM
 ) (
     input  logic       clk,        // 27 MHz
     input  logic       btn_s1,     // reset (active low)
@@ -41,7 +46,19 @@ module gb_top #(
 
     // UART debug console (BL616 USB bridge, pins 69/70)
     output logic       uart_tx,
-    input  logic       uart_rx
+    input  logic       uart_rx,
+
+    // SDRAM (embedded GW2AR-18 MCM — "magic" IOL/IOR pin names)
+    output logic        O_sdram_clk,
+    output logic        O_sdram_cke,
+    output logic        O_sdram_cs_n,
+    output logic        O_sdram_ras_n,
+    output logic        O_sdram_cas_n,
+    output logic        O_sdram_wen_n,
+    output logic [10:0] O_sdram_addr,
+    output logic [1:0]  O_sdram_ba,
+    output logic [3:0]  O_sdram_dqm,
+    inout  logic [31:0] IO_sdram_dq
 );
 
     // ---------------------------------------------------------------
@@ -65,11 +82,14 @@ module gb_top #(
     // SD boot — holds CPU in reset until ROM loaded
     // ---------------------------------------------------------------
     logic        boot_done;
-    logic [14:0] sd_rom_addr;
+    logic [22:0] sd_rom_addr;
     logic [7:0]  sd_rom_data;
     logic        sd_rom_wr;
     logic        sd_boot_error;
     logic [2:0]  sd_error_code;
+
+    // SDRAM controller wires (driven inside USE_SD generate block)
+    logic        sdram_busy;
 
     generate
         if (USE_SD != 0) begin : gen_sd_boot
@@ -141,6 +161,7 @@ module gb_top #(
                 .rom_addr      (sd_rom_addr),
                 .rom_data      (sd_rom_data),
                 .rom_wr        (sd_rom_wr),
+                .sdram_busy    (sdram_busy),
                 .done          (boot_done),
                 .boot_error    (sd_boot_error),
                 .error_code    (sd_error_code)
@@ -156,7 +177,7 @@ module gb_top #(
         end else begin : gen_no_sd
             // No SD boot — ROM preloaded, boot immediately done
             assign boot_done     = 1'b1;
-            assign sd_rom_addr   = 15'd0;
+            assign sd_rom_addr   = 23'd0;
             assign sd_rom_data   = 8'd0;
             assign sd_rom_wr     = 1'b0;
             assign sd_boot_error = 1'b0;
@@ -291,27 +312,195 @@ module gb_top #(
     );
 
     // ---------------------------------------------------------------
-    // ROM — BSRAM (USE_SD=1) or distributed RAM (USE_SD=0, sim)
+    // ROM / External RAM — SDRAM (USE_SD=1) or BSRAM/distrib (USE_SD=0)
     // ---------------------------------------------------------------
-    generate
-        if (USE_SD != 0) begin : gen_rom
-            // 32 KB BSRAM: SD boot loader writes during boot, CPU reads during run
-            wire [14:0] rom_bsram_addr = boot_done ? mbc_rom_addr[14:0] : sd_rom_addr;
-            wire        rom_bsram_we   = !boot_done && sd_rom_wr;
+    // SDRAM wait signal (only meaningful when USE_SD=1)
+    logic sdram_mem_wait;
 
-            single_port_ram #(.ADDR_WIDTH(15), .DATA_WIDTH(8)) u_rom (
-                .clk  (clk),
-                .we   (rom_bsram_we),
-                .addr (rom_bsram_addr),
-                .wdata(sd_rom_data),
-                .rdata(rom_rdata)
+    generate
+        if (USE_SD != 0) begin : gen_sdram
+            // -----------------------------------------------------------
+            // SDRAM controller (split DQ — tristate below)
+            // -----------------------------------------------------------
+            logic [31:0] sdram_dq_out, sdram_dq_in;
+            logic        sdram_dq_oe;
+            logic        sdram_rd, sdram_wr, sdram_refresh;
+            logic [22:0] sdram_a;
+            logic [7:0]  sdram_din, sdram_dout;
+            logic        sdram_data_ready;
+
+            sdram_ctrl u_sdram (
+                .clk(clk), .reset(hw_reset),
+                .rd(sdram_rd), .wr(sdram_wr), .refresh(sdram_refresh),
+                .addr(sdram_a), .din(sdram_din),
+                .dout(sdram_dout), .data_ready(sdram_data_ready), .busy(sdram_busy),
+                .sdram_clk(O_sdram_clk), .sdram_cke(O_sdram_cke),
+                .sdram_cs_n(O_sdram_cs_n), .sdram_ras_n(O_sdram_ras_n),
+                .sdram_cas_n(O_sdram_cas_n), .sdram_we_n(O_sdram_wen_n),
+                .sdram_addr(O_sdram_addr), .sdram_ba(O_sdram_ba),
+                .sdram_dqm(O_sdram_dqm),
+                .sdram_dq_out(sdram_dq_out), .sdram_dq_oe(sdram_dq_oe),
+                .sdram_dq_in(sdram_dq_in)
             );
-        end else begin : gen_rom
-            // Distributed RAM for simulation (small ROMs, combinational read)
+
+            // Synthesis tristate for SDRAM data bus
+            assign IO_sdram_dq = sdram_dq_oe ? sdram_dq_out : 32'bZ;
+            assign sdram_dq_in = IO_sdram_dq;
+
+            // -----------------------------------------------------------
+            // Refresh timer (~400 cycles at 27 MHz → ~15 µs)
+            // -----------------------------------------------------------
+            logic [8:0] ref_timer;
+            logic       ref_needed;
+
+            always_ff @(posedge clk) begin
+                if (hw_reset) begin
+                    ref_timer  <= 9'd0;
+                    ref_needed <= 1'b0;
+                end else begin
+                    if (ref_timer == 9'd400) begin
+                        ref_timer  <= 9'd0;
+                        ref_needed <= 1'b1;
+                    end else begin
+                        ref_timer <= ref_timer + 9'd1;
+                    end
+                    if (sdram_refresh)
+                        ref_needed <= 1'b0;
+                end
+            end
+
+            // -----------------------------------------------------------
+            // CPU SDRAM access tracking
+            // -----------------------------------------------------------
+            wire cpu_sdram_rd = rom_cs && cpu_rd;
+            wire cpu_sdram_wr = extram_cs && extram_en && cpu_wr;
+            wire cpu_sdram_extram_rd = extram_cs && extram_en && cpu_rd;
+
+            // SDRAM address from CPU: ROM at 0x000000, ExtRAM at 0x200000
+            wire [22:0] cpu_sdram_addr = rom_cs ? {2'b00, mbc_rom_addr} :
+                                                  {8'h20, extram_addr};
+
+            // FSM: track SDRAM access lifecycle during CPU run mode
+            typedef enum logic [1:0] {
+                SCPU_IDLE,
+                SCPU_WAIT,
+                SCPU_DONE
+            } scpu_state_t;
+
+            scpu_state_t scpu_state;
+            logic [7:0]  sdram_rdata_latched;
+
+            always_ff @(posedge clk) begin
+                if (reset) begin
+                    scpu_state <= SCPU_IDLE;
+                    sdram_rdata_latched <= 8'd0;
+                end else begin
+                    case (scpu_state)
+                        SCPU_IDLE: begin
+                            if ((cpu_sdram_rd || cpu_sdram_extram_rd || cpu_sdram_wr) &&
+                                boot_done && !sdram_busy)
+                                scpu_state <= SCPU_WAIT;
+                        end
+                        SCPU_WAIT: begin
+                            if (sdram_data_ready) begin
+                                sdram_rdata_latched <= sdram_dout;
+                                scpu_state <= SCPU_DONE;
+                            end else if (cpu_sdram_wr && !sdram_busy) begin
+                                // Write complete (busy dropped after write cycle)
+                                scpu_state <= SCPU_DONE;
+                            end
+                        end
+                        SCPU_DONE: begin
+                            // CPU will proceed (mem_wait=0), then on next cycle
+                            // cpu_rd/cpu_wr will drop, returning us to IDLE
+                            if (!cpu_sdram_rd && !cpu_sdram_extram_rd && !cpu_sdram_wr)
+                                scpu_state <= SCPU_IDLE;
+                        end
+                        default: scpu_state <= SCPU_IDLE;
+                    endcase
+                end
+            end
+
+            // Route SDRAM data to bus read ports
+            assign rom_rdata    = sdram_rdata_latched;
+            assign extram_rdata = sdram_rdata_latched;
+
+            // SDRAM mem_wait: active during any CPU SDRAM access until done
+            wire cpu_sdram_access = cpu_sdram_rd || cpu_sdram_extram_rd || cpu_sdram_wr;
+            assign sdram_mem_wait = boot_done && cpu_sdram_access &&
+                                    scpu_state != SCPU_DONE;
+
+            // -----------------------------------------------------------
+            // SDRAM command arbiter (boot mode vs run mode)
+            // -----------------------------------------------------------
+            // Pulse generation: issue rd/wr only on IDLE→WAIT transition
+            wire cpu_rd_pulse = boot_done &&
+                                (cpu_sdram_rd || cpu_sdram_extram_rd) &&
+                                scpu_state == SCPU_IDLE && !sdram_busy;
+            wire cpu_wr_pulse = boot_done &&
+                                cpu_sdram_wr &&
+                                scpu_state == SCPU_IDLE && !sdram_busy;
+
+            always_comb begin
+                sdram_rd      = 1'b0;
+                sdram_wr      = 1'b0;
+                sdram_refresh = 1'b0;
+                sdram_a       = 23'd0;
+                sdram_din     = 8'd0;
+
+                if (!boot_done) begin
+                    // Boot mode: sd_boot writes ROM data to SDRAM
+                    if (sd_rom_wr && !sdram_busy) begin
+                        sdram_wr  = 1'b1;
+                        sdram_a   = sd_rom_addr;
+                        sdram_din = sd_rom_data;
+                    end else if (ref_needed && !sdram_busy) begin
+                        sdram_refresh = 1'b1;
+                    end
+                end else begin
+                    // Run mode: CPU reads/writes + refresh
+                    if (cpu_rd_pulse) begin
+                        sdram_rd = 1'b1;
+                        sdram_a  = cpu_sdram_addr;
+                    end else if (cpu_wr_pulse) begin
+                        sdram_wr  = 1'b1;
+                        sdram_a   = cpu_sdram_addr;
+                        sdram_din = extram_wdata;
+                    end else if (ref_needed && !sdram_busy) begin
+                        sdram_refresh = 1'b1;
+                    end
+                end
+            end
+
+        end else begin : gen_no_sdram
+            // No SDRAM — tie outputs low, DQ undriven
+            assign O_sdram_clk  = 1'b0;
+            assign O_sdram_cke  = 1'b0;
+            assign O_sdram_cs_n = 1'b1;
+            assign O_sdram_ras_n = 1'b1;
+            assign O_sdram_cas_n = 1'b1;
+            assign O_sdram_wen_n = 1'b1;
+            assign O_sdram_addr = 11'd0;
+            assign O_sdram_ba   = 2'd0;
+            assign O_sdram_dqm  = 4'd0;
+            assign IO_sdram_dq  = 32'bZ;
+            assign sdram_busy   = 1'b0;
+            assign sdram_mem_wait = 1'b0;
+
+            // ROM — distributed RAM for simulation (small ROMs, combinational read)
             logic [7:0] rom_mem [0:ROM_SIZE-1];
             initial if (ROM_FILE != "")
                 $readmemh(ROM_FILE, rom_mem);
             assign rom_rdata = rom_mem[mbc_rom_addr[$clog2(ROM_SIZE)-1:0]];
+
+            // External RAM — 32 KB BSRAM (MBC1: 4 banks × 8 KB)
+            single_port_ram #(.ADDR_WIDTH(15), .DATA_WIDTH(8)) u_extram (
+                .clk  (clk),
+                .we   (extram_cs && extram_we),
+                .addr (extram_addr),
+                .wdata(extram_wdata),
+                .rdata(extram_rdata)
+            );
         end
     endgenerate;
 
@@ -327,17 +516,6 @@ module gb_top #(
     );
 
     // ---------------------------------------------------------------
-    // External RAM — 32 KB BSRAM (MBC1: 4 banks × 8 KB)
-    // ---------------------------------------------------------------
-    single_port_ram #(.ADDR_WIDTH(15), .DATA_WIDTH(8)) u_extram (
-        .clk  (clk),
-        .we   (extram_cs && extram_we),
-        .addr (extram_addr),
-        .wdata(extram_wdata),
-        .rdata(extram_rdata)
-    );
-
-    // ---------------------------------------------------------------
     // HRAM (127 bytes, combinational read, synchronous write)
     // ---------------------------------------------------------------
     logic [7:0] hram_mem [0:126];
@@ -348,21 +526,22 @@ module gb_top #(
     end
 
     // ---------------------------------------------------------------
-    // BSRAM wait-state generation
+    // Wait-state generation
     // ---------------------------------------------------------------
-    // VRAM, WRAM, and External RAM use synchronous BSRAM — reads take
-    // 1 extra cycle. Cycle 0: CPU reads → mem_wait=1, CPU freezes.
-    // Cycle 1: bsram_read_done=1 → mem_wait=0, data valid, CPU proceeds.
+    // BSRAM reads (VRAM, WRAM) take 1 extra cycle.
+    // When USE_SD=1, ROM and ExtRAM go through SDRAM (~5 cycles).
+    // When USE_SD=0, ExtRAM is also BSRAM (1 cycle), ROM is combinational.
     logic bsram_read_done;
-    // ROM is BSRAM (synchronous read) when USE_SD=1, distributed RAM when USE_SD=0
-    wire bsram_rd = (vram_cs || wram_cs || extram_cs || (USE_SD != 0 && rom_cs)) && cpu_rd;
+    wire bsram_rd = USE_SD != 0 ?
+        (vram_cs || wram_cs) && cpu_rd :
+        (vram_cs || wram_cs || extram_cs) && cpu_rd;
     always_ff @(posedge clk) begin
         if (reset)
             bsram_read_done <= 1'b0;
         else
             bsram_read_done <= bsram_rd && !bsram_read_done;
     end
-    wire mem_wait = bsram_rd && !bsram_read_done;
+    wire mem_wait = (bsram_rd && !bsram_read_done) || sdram_mem_wait;
 
     // ---------------------------------------------------------------
     // I/O registers
