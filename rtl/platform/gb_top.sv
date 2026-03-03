@@ -124,7 +124,8 @@ module gb_top #(
                 .read_valid   (sd_read_valid),
                 .read_done    (sd_read_done),
                 .ready        (sd_ready),
-                .err          (sd_err)
+                .err          (sd_err),
+                .sdhc         ()
             );
 
             sd_boot u_sd_boot (

@@ -16,7 +16,8 @@ module sd_reader_top #(
     output logic        read_valid,
     output logic        read_done,
     output logic        ready,
-    output logic        err
+    output logic        err,
+    output logic        sdhc
 );
 
     // sd_spi ↔ sd_reader wires
@@ -63,7 +64,8 @@ module sd_reader_top #(
         .read_valid   (read_valid),
         .read_done    (read_done),
         .ready        (ready),
-        .err          (err)
+        .err          (err),
+        .sdhc         (sdhc)
     );
 
     sd_card_model #(

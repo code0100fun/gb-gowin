@@ -37,6 +37,7 @@ module sd_boot_top (
     logic        sd_read_done;
     logic        sd_ready;
     logic        sd_error;
+    logic        sd_sdhc;
 
     // --- ROM BSRAM write port (from sd_boot) ---
     logic [14:0] rom_wr_addr;
@@ -91,7 +92,8 @@ module sd_boot_top (
         .read_valid   (sd_read_valid),
         .read_done    (sd_read_done),
         .ready        (sd_ready),
-        .err          (sd_error)
+        .err          (sd_error),
+        .sdhc         (sd_sdhc)
     );
 
     sd_boot u_boot (

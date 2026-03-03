@@ -1,8 +1,8 @@
 // SD card reader — initialization and single-block sector read.
 //
 // Handles the SD card SPI initialization sequence (CMD0, CMD8,
-// ACMD41, CMD16) and provides a sector-level read interface.
-// Supports SDHC cards (sector addressing).
+// ACMD41, CMD58, CMD16) and provides a sector-level read interface.
+// Supports both SDHC (sector addressing) and SDSC (byte addressing).
 module sd_reader (
     input  logic        clk,
     input  logic        reset,
@@ -23,7 +23,8 @@ module sd_reader (
     output logic        read_valid,   // pulse per byte (512 per sector)
     output logic        read_done,    // pulse when sector complete
     output logic        ready,        // card initialized, idle
-    output logic        err           // init failed
+    output logic        err,          // init failed
+    output logic        sdhc          // 1 = SDHC (sector addr), 0 = SDSC (byte addr)
 );
 
     // --- State machine ---
@@ -48,6 +49,7 @@ module sd_reader (
         STEP_CMD8,
         STEP_CMD55,
         STEP_ACMD41,
+        STEP_CMD58,
         STEP_CMD16,
         STEP_CMD17
     } step_t;
@@ -60,7 +62,7 @@ module sd_reader (
 
     // Counters
     logic [3:0]  powerup_cnt;  // 0-10 power-up bytes
-    logic [7:0]  poll_cnt;     // response poll attempts
+    logic [15:0] poll_cnt;     // response/token poll attempts
     logic [2:0]  tail_cnt;     // remaining R7 bytes
     logic [9:0]  data_cnt;     // 0-511 data bytes
     logic        crc_cnt;      // 0-1 CRC bytes
@@ -72,7 +74,7 @@ module sd_reader (
         input logic [31:0] arg,
         input logic [7:0] crc
     );
-        return {2'b01, idx, arg, crc};
+        make_cmd = {2'b01, idx, arg, crc};
     endfunction
 
     // Flag: need to start an SPI byte this cycle
@@ -89,6 +91,7 @@ module sd_reader (
             spi_slow_clk <= 1'b1;
             ready        <= 1'b0;
             err          <= 1'b0;
+            sdhc         <= 1'b0;
             read_valid   <= 1'b0;
             read_done    <= 1'b0;
             read_data    <= 8'h00;
@@ -131,7 +134,7 @@ module sd_reader (
                         cmd_buf   <= {cmd_buf[39:0], 8'h00};
                         if (send_idx == 3'd5) begin
                             state    <= S_WAIT_RESP;
-                            poll_cnt <= 8'd0;
+                            poll_cnt <= 16'd0;
                         end else begin
                             send_idx <= send_idx + 3'd1;
                         end
@@ -177,6 +180,14 @@ module sd_reader (
                                     end else
                                         state <= S_ERROR;
                                 end
+                                STEP_CMD58: begin
+                                    if (spi_rx == 8'h00) begin
+                                        // Read 4 OCR bytes
+                                        tail_cnt <= 3'd4;
+                                        state    <= S_CMD8_TAIL;
+                                    end else
+                                        state <= S_ERROR;
+                                end
                                 STEP_CMD16: begin
                                     // Done — switch to fast clock, ready
                                     spi_cs_en    <= 1'b0;
@@ -187,15 +198,15 @@ module sd_reader (
                                 STEP_CMD17: begin
                                     if (spi_rx == 8'h00) begin
                                         // Wait for data token
-                                        poll_cnt <= 8'd0;
+                                        poll_cnt <= 16'd0;
                                         state    <= S_WAIT_TOKEN;
                                     end else
                                         state <= S_ERROR;
                                 end
                                 default: state <= S_ERROR;
                             endcase
-                        end else if (poll_cnt < 8'd255) begin
-                            poll_cnt  <= poll_cnt + 8'd1;
+                        end else if (poll_cnt < 16'd255) begin
+                            poll_cnt  <= poll_cnt + 16'd1;
                         end else begin
                             state <= S_ERROR;
                         end
@@ -212,6 +223,9 @@ module sd_reader (
                 // -------------------------------------------------------
                 S_CMD8_TAIL: begin
                     if (spi_done) begin
+                        // Capture CCS bit from first OCR byte (CMD58)
+                        if (step == STEP_CMD58 && tail_cnt == 3'd4)
+                            sdhc <= spi_rx[6];
                         if (tail_cnt == 3'd1)
                             state <= S_FINISH_CMD;
                         else
@@ -260,13 +274,21 @@ module sd_reader (
                                     spi_cs_en <= 1'b1;
                                     state   <= S_SEND_CMD;
                                 end else begin
-                                    // ACMD41 returned 0x00 — send CMD16
-                                    step    <= STEP_CMD16;
-                                    cmd_buf <= make_cmd(6'd16, 32'h0000_0200, 8'hFF);
+                                    // ACMD41 returned 0x00 — send CMD58 to check SDHC/SDSC
+                                    step    <= STEP_CMD58;
+                                    cmd_buf <= make_cmd(6'd58, 32'h0, 8'hFF);
                                     send_idx <= 3'd0;
                                     spi_cs_en <= 1'b1;
                                     state   <= S_SEND_CMD;
                                 end
+                            end
+                            STEP_CMD58: begin
+                                // CMD58 done — send CMD16 (set block size 512)
+                                step    <= STEP_CMD16;
+                                cmd_buf <= make_cmd(6'd16, 32'h0000_0200, 8'hFF);
+                                send_idx <= 3'd0;
+                                spi_cs_en <= 1'b1;
+                                state   <= S_SEND_CMD;
                             end
                             default: state <= S_ERROR;
                         endcase
@@ -278,11 +300,15 @@ module sd_reader (
                 // -------------------------------------------------------
                 S_READY: begin
                     if (read_start) begin
-                        step    <= STEP_CMD17;
-                        cmd_buf <= make_cmd(6'd17, sector, 8'hFF);
+                        step     <= STEP_CMD17;
                         send_idx <= 3'd0;
                         spi_cs_en <= 1'b1;
-                        state   <= S_SEND_CMD;
+                        state    <= S_SEND_CMD;
+                        // SDHC: sector addressing, SDSC: byte addressing (sector * 512)
+                        if (sdhc)
+                            cmd_buf <= make_cmd(6'd17, sector, 8'hFF);
+                        else
+                            cmd_buf <= make_cmd(6'd17, {sector[22:0], 9'd0}, 8'hFF);
                     end
                 end
 
@@ -294,8 +320,8 @@ module sd_reader (
                         if (spi_rx == 8'hFE) begin
                             data_cnt <= 10'd0;
                             state    <= S_READ_DATA;
-                        end else if (poll_cnt < 8'd255) begin
-                            poll_cnt <= poll_cnt + 8'd1;
+                        end else if (poll_cnt < 16'd65535) begin
+                            poll_cnt <= poll_cnt + 16'd1;
                         end else begin
                             state <= S_ERROR;
                         end

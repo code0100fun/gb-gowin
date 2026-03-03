@@ -1,7 +1,8 @@
 // SD boot loader — FAT32 parser and ROM loader.
 //
-// Waits for sd_reader initialization, then reads MBR, VBR, root
-// directory to find the first .gb file. Loads the ROM data into
+// Waits for sd_reader initialization, then reads sector 0, auto-
+// detects MBR vs VBR (super floppy), parses FAT32 parameters, scans
+// root directory to find the first .gb file. Loads the ROM data into
 // BSRAM via a write port. Minimal FAT32: root directory only,
 // 8.3 names, follows cluster chain.
 module sd_boot (
@@ -56,6 +57,8 @@ module sd_boot (
     // Sector read state
     logic [8:0]  byte_cnt;       // 0-511 within current sector
     logic        sector_reading; // actively reading a sector
+    logic        is_vbr;         // sector 0 is VBR (no MBR)
+    logic [7:0]  bps_lo;         // bytes_per_sector low byte (VBR detection)
 
     // FAT32 parameters (captured from VBR)
     logic [7:0]  sectors_per_cluster;
@@ -89,7 +92,7 @@ module sd_boot (
 
     // Helper: cluster to LBA
     function automatic [31:0] cluster_to_lba(input logic [31:0] cluster);
-        return data_start + (cluster - 32'd2) * {24'd0, sectors_per_cluster};
+        cluster_to_lba = data_start + (cluster - 32'd2) * {24'd0, sectors_per_cluster};
     endfunction
 
     // Start a sector read
@@ -112,6 +115,8 @@ module sd_boot (
             boot_error     <= 1'b0;
             error_code     <= ERR_NONE;
             sector_reading <= 1'b0;
+            is_vbr         <= 1'b0;
+            bps_lo         <= 8'd0;
             byte_cnt       <= 9'd0;
             file_found     <= 1'b0;
             rom_bytes_loaded <= 32'd0;
@@ -150,21 +155,31 @@ module sd_boot (
                 end
 
                 // =============================================================
-                // Parse MBR — extract first partition LBA
+                // Parse sector 0 — detect MBR vs VBR, extract partition LBA
+                // or FAT32 params directly (super floppy / no-MBR cards)
                 // =============================================================
                 S_PARSE_MBR: begin
                     if (sd_read_valid) begin
-                        // Partition table entry 1 starts at offset 446
-                        // Type byte at 446+4 = 450
-                        // LBA start at 446+8 = 454 (4 bytes, little-endian)
                         case (byte_cnt)
-                            9'd450: begin
-                                // Partition type — check for FAT32 (0x0B or 0x0C)
-                                if (sd_read_data != 8'h0B && sd_read_data != 8'h0C) begin
-                                    state      <= S_ERROR;
-                                    error_code <= ERR_MBR;
-                                end
-                            end
+                            // Bytes 11-12: bytes_per_sector. If 0x0200 (512),
+                            // sector 0 is a FAT BPB (VBR), not an MBR.
+                            9'd11: bps_lo <= sd_read_data;
+                            9'd12: is_vbr <= (bps_lo == 8'h00 &&
+                                              sd_read_data == 8'h02);
+                            // VBR fields (captured in case sector 0 IS the VBR)
+                            9'd13: sectors_per_cluster    <= sd_read_data;
+                            9'd14: reserved_sectors[7:0]  <= sd_read_data;
+                            9'd15: reserved_sectors[15:8] <= sd_read_data;
+                            9'd16: num_fats               <= sd_read_data;
+                            9'd36: fat_size[7:0]          <= sd_read_data;
+                            9'd37: fat_size[15:8]         <= sd_read_data;
+                            9'd38: fat_size[23:16]        <= sd_read_data;
+                            9'd39: fat_size[31:24]        <= sd_read_data;
+                            9'd44: root_cluster[7:0]      <= sd_read_data;
+                            9'd45: root_cluster[15:8]     <= sd_read_data;
+                            9'd46: root_cluster[23:16]    <= sd_read_data;
+                            9'd47: root_cluster[31:24]    <= sd_read_data;
+                            // MBR partition LBA (offsets 454–457)
                             9'd454: part_lba[7:0]   <= sd_read_data;
                             9'd455: part_lba[15:8]  <= sd_read_data;
                             9'd456: part_lba[23:16] <= sd_read_data;
@@ -173,8 +188,16 @@ module sd_boot (
                         endcase
                     end
                     if (sd_read_done) begin
-                        if (state != S_ERROR)
-                            state <= S_READ_VBR;
+                        if (state != S_ERROR) begin
+                            if (is_vbr) begin
+                                // No MBR — sector 0 is VBR (super floppy format)
+                                part_lba  <= 32'd0;
+                                fat_start <= {16'd0, reserved_sectors};
+                                state     <= S_READ_ROOT;
+                            end else begin
+                                state <= S_READ_VBR;
+                            end
+                        end
                     end
                 end
 

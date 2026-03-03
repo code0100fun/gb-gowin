@@ -27,7 +27,8 @@ case "$TOP" in
     gb_top)    SV_FILES="rtl/platform/gb_top.sv rtl/ppu/ppu.sv rtl/memory/dual_port_ram.sv rtl/memory/single_port_ram.sv rtl/lcd/st7789.sv rtl/io/timer.sv rtl/io/joypad.sv rtl/io/serial.sv rtl/cart/mbc1.sv rtl/cart/sd_spi.sv rtl/cart/sd_reader.sv rtl/cart/sd_boot.sv rtl/io/uart_tx.sv rtl/io/uart_rx.sv rtl/io/debug_console.sv rtl/core/bus.sv rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv" ;;
     lcd_test_top) SV_FILES="rtl/platform/lcd_test_top.sv rtl/lcd/st7789.sv" ;;
     serial_test_top) SV_FILES="rtl/platform/serial_test_top.sv rtl/io/uart_tx.sv rtl/io/uart_rx.sv" ;;
-    *)         echo "Unknown top module: $TOP (available: blinky, gb_top, lcd_test_top, serial_test_top)"; exit 1 ;;
+    sd_test_top) SV_FILES="rtl/platform/sd_test_top.sv rtl/cart/sd_spi.sv rtl/cart/sd_reader.sv rtl/io/uart_tx.sv" ;;
+    *)         echo "Unknown top module: $TOP (available: blinky, gb_top, lcd_test_top, serial_test_top, sd_test_top)"; exit 1 ;;
 esac
 mkdir -p "$BUILD_DIR"
 yosys -p "read_verilog -sv ${SV_FILES}; synth_gowin -top $TOP -json $BUILD_DIR/synth.json"

@@ -107,3 +107,7 @@ descriptions of scope and goals.
   and other DMG titles. Debugging workflow for when games break. Performance
   profiling and FPGA resource usage. Where to go next (GBC, link cable,
   save states).
+- [ ] **26 — ROM Selection Menu**: Read cartridge headers (title at 0x0134–0x0143)
+  from .gb files on the SD card. Display a selectable list of game titles on
+  the ST7789 LCD. D-pad navigation, A button to boot. Avoids FAT32 LFN
+  parsing by reading the ROM-embedded title instead of the filename.
