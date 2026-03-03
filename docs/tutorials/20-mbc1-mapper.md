@@ -202,7 +202,7 @@ $ mise run test
 
 ## What's Next
 
-Tutorial 21 adds SD card ROM loading — an SPI SD card reader that lists
-.gb files on a FAT32 partition using the ST7789 display and joypad for
-selection. This replaces the BRAM boot ROM with a proper boot menu,
-letting us load real game ROMs into SDRAM.
+Tutorial 21 adds SD card ROM loading — an SPI SD card controller, card
+initialization and sector reader, and a minimal FAT32 boot loader that
+automatically finds and loads the first .gb file from the SD card into
+32 KB BSRAM ROM at power-on.

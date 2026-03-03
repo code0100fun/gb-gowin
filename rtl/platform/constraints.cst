@@ -62,3 +62,17 @@ IO_PORT "btn_a"      IO_TYPE=LVCMOS33;
 IO_PORT "btn_b"      IO_TYPE=LVCMOS33;
 IO_PORT "btn_select" IO_TYPE=LVCMOS33;
 IO_PORT "btn_start"  IO_TYPE=LVCMOS33;
+
+// SD card (built-in microSD slot, SPI mode)
+IO_LOC "sd_clk"   83;
+IO_LOC "sd_cmd"   82;
+IO_LOC "sd_dat0"  84;
+IO_LOC "sd_dat1"  85;
+IO_LOC "sd_dat2"  80;
+IO_LOC "sd_dat3"  81;
+IO_PORT "sd_clk"  IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "sd_cmd"  IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "sd_dat0" IO_TYPE=LVCMOS33;
+IO_PORT "sd_dat1" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "sd_dat2" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "sd_dat3" IO_TYPE=LVCMOS33 DRIVE=8;

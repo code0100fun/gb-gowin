@@ -83,9 +83,10 @@ descriptions of scope and goals.
   RAM (up to 32 KB). Register writes at 0000–7FFF to control bank select.
   Mode 0 (ROM banking) and Mode 1 (RAM banking). Enough to run most classic
   titles.
-- [ ] **21 — SD Card ROM Loading**: SPI SD card reader. FAT32 file listing on
-  the ST7789 display with joypad selection. Load a .gb ROM from SD into
-  SDRAM. Replace the BRAM boot ROM with a proper boot menu.
+- [x] **21 — SD Card ROM Loading**: SPI SD card controller (sd_spi), card init
+  and sector read (sd_reader), minimal FAT32 parser (sd_boot). Auto-loads the
+  first .gb file from the SD card root directory into 32 KB BSRAM ROM. CPU held
+  in reset until boot completes. Behavioral SD card model for simulation.
 - [ ] **22 — SDRAM Controller**: Interface to the Tang Nano 20K's on-board
   HY57V641620F 64Mbit SDRAM. Initialization sequence, read/write burst
   timing, refresh. Map cartridge ROM and external RAM through SDRAM for

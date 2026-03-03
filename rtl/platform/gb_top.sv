@@ -5,7 +5,8 @@
 // the CPU pauses for one cycle via mem_wait during BSRAM reads.
 module gb_top #(
     parameter int ROM_SIZE = 256,
-    parameter     ROM_FILE = "sim/data/boot_test.hex"
+    parameter     ROM_FILE = "sim/data/boot_test.hex",
+    parameter int USE_SD   = 0     // 0=embedded ROM, 1=SD card boot
 ) (
     input  logic       clk,        // 27 MHz
     input  logic       btn_s1,     // reset (active low)
@@ -19,6 +20,14 @@ module gb_top #(
     output logic       lcd_sclk,
     output logic       lcd_mosi,
     output logic       lcd_bl,
+
+    // SD card (built-in microSD slot, SPI mode)
+    output logic       sd_clk,
+    output logic       sd_cmd,     // MOSI
+    input  logic       sd_dat0,    // MISO
+    output logic       sd_dat1,    // unused, active high
+    output logic       sd_dat2,    // unused, active high
+    output logic       sd_dat3,    // CS (directly from sd_spi cs_n)
 
     // Joypad buttons (active high — GPIO pulled to 3.3V when pressed)
     input  logic       btn_right,
@@ -50,7 +59,117 @@ module gb_top #(
         else if (!por_cnt[4])
             por_cnt <= por_cnt + 5'd1;
     end
-    wire reset = !por_cnt[4];
+    wire hw_reset = !por_cnt[4];
+
+    // ---------------------------------------------------------------
+    // SD boot — holds CPU in reset until ROM loaded
+    // ---------------------------------------------------------------
+    logic        boot_done;
+    logic [14:0] sd_rom_addr;
+    logic [7:0]  sd_rom_data;
+    logic        sd_rom_wr;
+    logic        sd_boot_error;
+    logic [2:0]  sd_error_code;
+
+    generate
+        if (USE_SD != 0) begin : gen_sd_boot
+            // SD card SPI wires
+            logic [7:0] spi_tx;
+            logic       spi_start;
+            logic [7:0] spi_rx;
+            logic       spi_busy;
+            logic       spi_done;
+            logic       spi_cs_en;
+            logic       spi_slow_clk;
+            logic       spi_sclk, spi_mosi, spi_miso, spi_cs_n;
+
+            // sd_reader wires
+            logic [31:0] sd_sector;
+            logic        sd_read_start;
+            logic [7:0]  sd_read_data;
+            logic        sd_read_valid;
+            logic        sd_read_done;
+            logic        sd_ready;
+            logic        sd_err;
+
+            sd_spi u_sd_spi (
+                .clk      (clk),
+                .reset    (hw_reset),
+                .sclk     (spi_sclk),
+                .mosi     (spi_mosi),
+                .miso     (spi_miso),
+                .cs_n     (spi_cs_n),
+                .tx_data  (spi_tx),
+                .start    (spi_start),
+                .rx_data  (spi_rx),
+                .busy     (spi_busy),
+                .done     (spi_done),
+                .cs_en    (spi_cs_en),
+                .slow_clk (spi_slow_clk)
+            );
+
+            sd_reader u_sd_reader (
+                .clk          (clk),
+                .reset        (hw_reset),
+                .spi_tx       (spi_tx),
+                .spi_start    (spi_start),
+                .spi_rx       (spi_rx),
+                .spi_busy     (spi_busy),
+                .spi_done     (spi_done),
+                .spi_cs_en    (spi_cs_en),
+                .spi_slow_clk (spi_slow_clk),
+                .sector       (sd_sector),
+                .read_start   (sd_read_start),
+                .read_data    (sd_read_data),
+                .read_valid   (sd_read_valid),
+                .read_done    (sd_read_done),
+                .ready        (sd_ready),
+                .err          (sd_err)
+            );
+
+            sd_boot u_sd_boot (
+                .clk           (clk),
+                .reset         (hw_reset),
+                .sd_sector     (sd_sector),
+                .sd_read_start (sd_read_start),
+                .sd_read_data  (sd_read_data),
+                .sd_read_valid (sd_read_valid),
+                .sd_read_done  (sd_read_done),
+                .sd_ready      (sd_ready),
+                .sd_error      (sd_err),
+                .rom_addr      (sd_rom_addr),
+                .rom_data      (sd_rom_data),
+                .rom_wr        (sd_rom_wr),
+                .done          (boot_done),
+                .boot_error    (sd_boot_error),
+                .error_code    (sd_error_code)
+            );
+
+            // SD card pin assignments
+            assign sd_clk  = spi_sclk;
+            assign sd_cmd  = spi_mosi;
+            assign spi_miso = sd_dat0;
+            assign sd_dat3 = spi_cs_n;
+            assign sd_dat1 = 1'b1;  // unused, tie high
+            assign sd_dat2 = 1'b1;  // unused, tie high
+        end else begin : gen_no_sd
+            // No SD boot — ROM preloaded, boot immediately done
+            assign boot_done     = 1'b1;
+            assign sd_rom_addr   = 15'd0;
+            assign sd_rom_data   = 8'd0;
+            assign sd_rom_wr     = 1'b0;
+            assign sd_boot_error = 1'b0;
+            assign sd_error_code = 3'd0;
+            assign sd_clk  = 1'b0;
+            assign sd_cmd  = 1'b1;
+            assign sd_dat1 = 1'b1;
+            assign sd_dat2 = 1'b1;
+            assign sd_dat3 = 1'b1;
+        end
+    endgenerate
+
+    // CPU reset = hardware reset OR boot not yet complete
+    wire reset = hw_reset || !boot_done;
 
     // ---------------------------------------------------------------
     // CPU ↔ bus wires
@@ -171,12 +290,29 @@ module gb_top #(
     );
 
     // ---------------------------------------------------------------
-    // ROM (combinational read, distributed RAM)
+    // ROM — BSRAM (USE_SD=1) or distributed RAM (USE_SD=0, sim)
     // ---------------------------------------------------------------
-    logic [7:0] rom_mem [0:ROM_SIZE-1];
-    initial if (ROM_FILE != "")
-        $readmemh(ROM_FILE, rom_mem);
-    assign rom_rdata = rom_mem[mbc_rom_addr[$clog2(ROM_SIZE)-1:0]];
+    generate
+        if (USE_SD != 0) begin : gen_rom
+            // 32 KB BSRAM: SD boot loader writes during boot, CPU reads during run
+            wire [14:0] rom_bsram_addr = boot_done ? mbc_rom_addr[14:0] : sd_rom_addr;
+            wire        rom_bsram_we   = !boot_done && sd_rom_wr;
+
+            single_port_ram #(.ADDR_WIDTH(15), .DATA_WIDTH(8)) u_rom (
+                .clk  (clk),
+                .we   (rom_bsram_we),
+                .addr (rom_bsram_addr),
+                .wdata(sd_rom_data),
+                .rdata(rom_rdata)
+            );
+        end else begin : gen_rom
+            // Distributed RAM for simulation (small ROMs, combinational read)
+            logic [7:0] rom_mem [0:ROM_SIZE-1];
+            initial if (ROM_FILE != "")
+                $readmemh(ROM_FILE, rom_mem);
+            assign rom_rdata = rom_mem[mbc_rom_addr[$clog2(ROM_SIZE)-1:0]];
+        end
+    endgenerate;
 
     // ---------------------------------------------------------------
     // WRAM — 8 KB BSRAM (synchronous reads, 1-cycle latency)
@@ -217,7 +353,8 @@ module gb_top #(
     // 1 extra cycle. Cycle 0: CPU reads → mem_wait=1, CPU freezes.
     // Cycle 1: bsram_read_done=1 → mem_wait=0, data valid, CPU proceeds.
     logic bsram_read_done;
-    wire bsram_rd = (vram_cs || wram_cs || extram_cs) && cpu_rd;
+    // ROM is BSRAM (synchronous read) when USE_SD=1, distributed RAM when USE_SD=0
+    wire bsram_rd = (vram_cs || wram_cs || extram_cs || (USE_SD != 0 && rom_cs)) && cpu_rd;
     always_ff @(posedge clk) begin
         if (reset)
             bsram_read_done <= 1'b0;

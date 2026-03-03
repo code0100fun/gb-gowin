@@ -24,7 +24,7 @@ set -e
 TOP="${1:-blinky}"
 case "$TOP" in
     blinky)    SV_FILES="rtl/platform/blinky.sv" ;;
-    gb_top)    SV_FILES="rtl/platform/gb_top.sv rtl/ppu/ppu.sv rtl/memory/dual_port_ram.sv rtl/memory/single_port_ram.sv rtl/lcd/st7789.sv rtl/io/timer.sv rtl/io/joypad.sv rtl/io/serial.sv rtl/cart/mbc1.sv rtl/io/uart_tx.sv rtl/io/uart_rx.sv rtl/io/debug_console.sv rtl/core/bus.sv rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv" ;;
+    gb_top)    SV_FILES="rtl/platform/gb_top.sv rtl/ppu/ppu.sv rtl/memory/dual_port_ram.sv rtl/memory/single_port_ram.sv rtl/lcd/st7789.sv rtl/io/timer.sv rtl/io/joypad.sv rtl/io/serial.sv rtl/cart/mbc1.sv rtl/cart/sd_spi.sv rtl/cart/sd_reader.sv rtl/cart/sd_boot.sv rtl/io/uart_tx.sv rtl/io/uart_rx.sv rtl/io/debug_console.sv rtl/core/bus.sv rtl/core/cpu/cpu.sv rtl/core/cpu/regfile.sv rtl/core/cpu/alu.sv rtl/core/cpu/decoder.sv" ;;
     lcd_test_top) SV_FILES="rtl/platform/lcd_test_top.sv rtl/lcd/st7789.sv" ;;
     serial_test_top) SV_FILES="rtl/platform/serial_test_top.sv rtl/io/uart_tx.sv rtl/io/uart_rx.sv" ;;
     *)         echo "Unknown top module: $TOP (available: blinky, gb_top, lcd_test_top, serial_test_top)"; exit 1 ;;
@@ -148,6 +148,18 @@ run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:serial"
 [tasks."test:mbc1"]
 description = "Run MBC1 mapper testbench"
 run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:mbc1"
+
+[tasks."test:sd_spi"]
+description = "Run SD card SPI testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:sd_spi"
+
+[tasks."test:sd_reader"]
+description = "Run SD card reader testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:sd_reader"
+
+[tasks."test:sd_boot"]
+description = "Run SD boot loader testbench"
+run = "zig build -Dtarget=x86_64-linux-gnu.2.38 --summary all test:sd_boot"
 
 [tasks."test:gb_top"]
 description = "Run FPGA top-level testbench"

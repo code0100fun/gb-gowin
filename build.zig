@@ -277,6 +277,59 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const sd_spi_mod = verilator.addModel(b, .{
+        .name = "sd_spi_top",
+        .sources = &.{
+            "sim/top/sd_spi_top.sv",
+            "rtl/cart/sd_spi.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+        },
+    });
+
+    const sd_reader_mod = verilator.addModel(b, .{
+        .name = "sd_reader_top",
+        .sources = &.{
+            "sim/top/sd_reader_top.sv",
+            "sim/model/sd_card_model.sv",
+            "rtl/cart/sd_reader.sv",
+            "rtl/cart/sd_spi.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+            "-Wno-INITIALDLY",
+        },
+    });
+
+    const sd_boot_mod = verilator.addModel(b, .{
+        .name = "sd_boot_top",
+        .sources = &.{
+            "sim/top/sd_boot_top.sv",
+            "sim/model/sd_card_model.sv",
+            "rtl/cart/sd_boot.sv",
+            "rtl/cart/sd_reader.sv",
+            "rtl/cart/sd_spi.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+            "-Wno-UNUSEDPARAM",
+            "-Wno-INITIALDLY",
+        },
+    });
+
     const mbc1_mod = verilator.addModel(b, .{
         .name = "mbc1_top",
         .sources = &.{
@@ -308,6 +361,9 @@ pub fn build(b: *std.Build) void {
             "rtl/io/debug_console.sv",
             "rtl/io/serial.sv",
             "rtl/cart/mbc1.sv",
+            "rtl/cart/sd_spi.sv",
+            "rtl/cart/sd_reader.sv",
+            "rtl/cart/sd_boot.sv",
             "rtl/core/bus.sv",
             "rtl/core/cpu/cpu.sv",
             "rtl/core/cpu/regfile.sv",
@@ -351,6 +407,9 @@ pub fn build(b: *std.Build) void {
         .{ "sim/test/debug_console.zig", "debug_console_top", debug_console_mod, "test:debug_console" },
         .{ "sim/test/serial.zig", "serial_top", serial_mod, "test:serial" },
         .{ "sim/test/mbc1.zig", "mbc1_top", mbc1_mod, "test:mbc1" },
+        .{ "sim/test/sd_spi.zig", "sd_spi_top", sd_spi_mod, "test:sd_spi" },
+        .{ "sim/test/sd_reader.zig", "sd_reader_top", sd_reader_mod, "test:sd_reader" },
+        .{ "sim/test/sd_boot.zig", "sd_boot_top", sd_boot_mod, "test:sd_boot" },
         .{ "sim/test/gb_top.zig", "gb_top", gb_top_mod, "test:gb_top" },
     };
 
