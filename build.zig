@@ -346,6 +346,23 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const sdram_ctrl_mod = verilator.addModel(b, .{
+        .name = "sdram_ctrl_top",
+        .sources = &.{
+            "sim/top/sdram_ctrl_top.sv",
+            "rtl/memory/sdram_ctrl.sv",
+            "sim/model/sdram_model.sv",
+        },
+        .target = target,
+        .optimize = optimize,
+        .trace = true,
+        .verilator_flags = &.{
+            "-Wall",
+            "-Wno-UNUSEDSIGNAL",
+            "-Wno-INITIALDLY",
+        },
+    });
+
     const gb_top_mod = verilator.addModel(b, .{
         .name = "gb_top",
         .sources = &.{
@@ -410,6 +427,7 @@ pub fn build(b: *std.Build) void {
         .{ "sim/test/sd_spi.zig", "sd_spi_top", sd_spi_mod, "test:sd_spi" },
         .{ "sim/test/sd_reader.zig", "sd_reader_top", sd_reader_mod, "test:sd_reader" },
         .{ "sim/test/sd_boot.zig", "sd_boot_top", sd_boot_mod, "test:sd_boot" },
+        .{ "sim/test/sdram_ctrl.zig", "sdram_ctrl_top", sdram_ctrl_mod, "test:sdram_ctrl" },
         .{ "sim/test/gb_top.zig", "gb_top", gb_top_mod, "test:gb_top" },
     };
 
