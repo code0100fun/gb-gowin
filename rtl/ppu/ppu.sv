@@ -280,7 +280,7 @@ module ppu #(
     end
 
     always_ff @(posedge clk) begin
-        if (reset || !lcd_on) begin
+        if (reset) begin  // DIAGNOSTIC: removed !lcd_on gate so PPU keeps counting
             mcycle_ctr   <= 7'd0;
             ly_ctr       <= 8'd0;
             prescale_ctr <= 7'd0;
@@ -303,9 +303,7 @@ module ppu #(
     end
 
     always_comb begin
-        if (!lcd_on)
-            ppu_mode = 2'd0;
-        else if (ly_ctr >= 8'd144)
+        if (ly_ctr >= 8'd144)
             ppu_mode = 2'd1;  // VBlank
         else if (mcycle_ctr < 7'd20)
             ppu_mode = 2'd2;  // OAM scan
@@ -690,11 +688,8 @@ module ppu #(
 
                 PX_BG_HI: begin
                     // rdata_b has bg tile high byte — compute BG pixel
-                    if (!lcd_on) begin  // DIAGNOSTIC: removed !bg_enable check
-                        pixel_data <= 16'hFFFF;
-                        pixel_data_valid <= 1'b1;
-                        px_state <= PX_DONE;
-                    end else if (px_win_active) begin
+                    // DIAGNOSTIC: removed !lcd_on && !bg_enable checks
+                    if (px_win_active) begin
                         // Need window data — start window fetch
                         px_state <= PX_WIN_MAP;
                     end else begin
