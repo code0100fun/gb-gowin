@@ -12,7 +12,7 @@ module gb_top #(
     parameter int ROM_SIZE = 256,
     parameter     ROM_FILE = "sim/data/boot_test.hex",
     parameter int USE_SD   = 0,    // 0=embedded ROM, 1=SD card boot + SDRAM
-    parameter int PPU_PRESCALE = 94 // PPU timing prescaler (1=sim, 94=hardware w/ VBlank delay)
+    parameter int PPU_PRESCALE = 88 // PPU timing prescaler (1=sim, 88=hardware continuous streaming)
 ) (
     input  logic       clk,        // 27 MHz
     input  logic       btn_s1,     // reset (active low)
@@ -783,12 +783,14 @@ module gb_top #(
         .pixel_data_valid (lcd_pixel_ready),
         .irq_vblank       (ppu_irq_vblank),
         .irq_stat         (ppu_irq_stat),
+        .ppu_vblank       (ppu_in_vblank),
         .dbg_lcdc         (dbg_ppu_lcdc),
         .dbg_ly           (dbg_ppu_ly),
         .dbg_bgp          (dbg_ppu_bgp)
     );
 
     logic [7:0] dbg_ppu_lcdc, dbg_ppu_ly, dbg_ppu_bgp;
+    logic       ppu_in_vblank;
 
     // ---------------------------------------------------------------
     // Debug UART console (active after boot)
@@ -931,8 +933,7 @@ module gb_top #(
     // ---------------------------------------------------------------
     // ST7789 LCD — driven by PPU pixel output
     // ---------------------------------------------------------------
-    // VBlank delay: 10 scanlines × 114 mcycles × PPU_PRESCALE clocks
-    st7789 #(.VBLANK_CLOCKS(10 * 114 * PPU_PRESCALE)) u_lcd (
+    st7789 #(.VBLANK_CLOCKS(0)) u_lcd (
         .clk        (clk),
         .reset      (reset),
         .lcd_rst    (lcd_rst),
@@ -941,6 +942,7 @@ module gb_top #(
         .lcd_sclk   (lcd_sclk),
         .lcd_mosi   (lcd_mosi),
         .lcd_bl     (lcd_bl),
+        .ppu_vblank (ppu_in_vblank),
         .pixel_data (lcd_pixel_data),
         .pixel_ready(lcd_pixel_ready),
         .pixel_x    (lcd_pixel_x),

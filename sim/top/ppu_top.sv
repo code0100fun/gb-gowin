@@ -86,7 +86,8 @@ module ppu_top (
 
         // Interrupts
         .irq_vblank     (dbg_irq_vblank),
-        .irq_stat       (dbg_irq_stat)
+        .irq_stat       (dbg_irq_stat),
+        .ppu_vblank     ()
     );
 
     // Debug: read registers back via io bus

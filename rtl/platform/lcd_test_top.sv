@@ -56,6 +56,7 @@ module lcd_test_top (
         .lcd_sclk   (lcd_sclk),
         .lcd_mosi   (lcd_mosi),
         .lcd_bl     (lcd_bl),
+        .ppu_vblank (1'b0),
         .pixel_data (pixel_data),
         .pixel_ready(1'b1),        // always ready
         .pixel_x    (pixel_x),

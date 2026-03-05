@@ -23,6 +23,9 @@ module st7789 #(
     output logic        lcd_mosi,   // SPI data out
     output logic        lcd_bl,     // backlight enable
 
+    // Frame sync
+    input  logic        ppu_vblank, // high during PPU VBlank (ly >= 144)
+
     // Pixel interface
     input  logic [15:0] pixel_data, // RGB565 pixel to send
     input  logic        pixel_ready,// high when pixel_data is valid (from PPU pipeline)
@@ -135,7 +138,7 @@ module st7789 #(
             6'd5:    init_entry = {2'b01, 8'h55};  //   RGB565
             // ---- Memory access control ----
             6'd6:    init_entry = {2'b00, 8'h36};  // MADCTL
-            6'd7:    init_entry = {2'b01, 8'h00};  //   No transform (CASET=horizontal, RASET=vertical)
+            6'd7:    init_entry = {2'b01, 8'h00};  //   No transform
             // ---- Porch control ----
             6'd8:    init_entry = {2'b00, 8'hB2};  // PORCTRL
             6'd9:    init_entry = {2'b01, 8'h0C};
@@ -229,6 +232,7 @@ module st7789 #(
     state_t      delay_ret;  // return state after delay
     logic        clearing;   // true during full-screen black fill
     logic        clear_done; // set after clear phase started
+    logic        vblank_seen; // frame sync: PPU VBlank observed
 
     initial begin
         state     = S_RESET_LO;
@@ -243,8 +247,9 @@ module st7789 #(
         init_idx  = 6'd0;
         px_cnt     = 15'd0;
         delay_ctr  = 22'd0;
-        clearing   = 1'b0;
-        clear_done = 1'b0;
+        clearing    = 1'b0;
+        clear_done  = 1'b0;
+        vblank_seen = 1'b0;
     end
 
     always_ff @(posedge clk) begin
@@ -263,8 +268,9 @@ module st7789 #(
             delay_ctr <= 22'd0;
             spi_start  <= 1'b0;
             shift_data <= 8'd0;
-            clearing   <= 1'b0;
-            clear_done <= 1'b0;
+            clearing    <= 1'b0;
+            clear_done  <= 1'b0;
+            vblank_seen <= 1'b0;
         end else begin
             spi_start <= 1'b0;
             pixel_req <= 1'b0;
@@ -402,14 +408,10 @@ module st7789 #(
                                     clearing <= 1'b0;
                                     init_idx <= GAME_WIN_IDX[5:0];
                                     state    <= S_INIT;
-                                end else if (VBLANK_CLOCKS > 0) begin
-                                    // Frame done — VBlank delay before next frame
-                                    delay_ctr <= 22'd0;
-                                    state     <= S_VBLANK;
                                 end else begin
-                                    // Frame done — re-send RAMWR immediately
-                                    init_idx <= RAMWR_IDX[5:0];
-                                    state    <= S_INIT;
+                                    // Frame done — sync to PPU VBlank
+                                    vblank_seen <= 1'b0;
+                                    state       <= S_VBLANK;
                                 end
                             end else begin
                                 pixel_y <= pixel_y + 8'd1;
@@ -426,14 +428,15 @@ module st7789 #(
                     end
                 end
 
-                // ---- VBlank delay between frames ----
+                // ---- VBlank sync: wait for PPU VBlank to start and end ----
                 S_VBLANK: begin
-                    if (delay_ctr == VBLANK_CLOCKS[21:0] - 22'd1) begin
-                        delay_ctr <= 22'd0;
-                        init_idx  <= RAMWR_IDX[5:0];
-                        state     <= S_INIT;
-                    end else begin
-                        delay_ctr <= delay_ctr + 22'd1;
+                    if (vblank_seen && !ppu_vblank) begin
+                        // PPU left VBlank — start next frame
+                        vblank_seen <= 1'b0;
+                        init_idx    <= RAMWR_IDX[5:0];
+                        state       <= S_INIT;
+                    end else if (ppu_vblank) begin
+                        vblank_seen <= 1'b1;
                     end
                 end
 

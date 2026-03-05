@@ -125,6 +125,7 @@ module ppu_test_top (
         .clk(clk), .reset(reset),
         .lcd_rst(lcd_rst), .lcd_cs(lcd_cs), .lcd_dc(lcd_dc),
         .lcd_sclk(lcd_sclk), .lcd_mosi(lcd_mosi), .lcd_bl(lcd_bl),
+        .ppu_vblank(1'b0),
         .pixel_data(ppu_pixel_data),
         .pixel_ready(ppu_pixel_valid),
         .pixel_x(pixel_x), .pixel_y(pixel_y),

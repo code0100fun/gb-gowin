@@ -67,6 +67,9 @@ module ppu #(
     output logic        irq_vblank,
     output logic        irq_stat,
 
+    // Frame sync
+    output logic        ppu_vblank,  // high during VBlank (ly >= 144)
+
     // Debug outputs
     output logic [7:0]  dbg_lcdc,
     output logic [7:0]  dbg_ly,
@@ -237,6 +240,7 @@ module ppu #(
     end
 
     assign irq_vblank = (ly_ctr == 8'd144) && !prev_vblank_line;
+    assign ppu_vblank = (ly_ctr >= 8'd144);
 
     // -----------------------------------------------------------------
     // LCDC bit aliases
