@@ -11,7 +11,8 @@
 module gb_top #(
     parameter int ROM_SIZE = 256,
     parameter     ROM_FILE = "sim/data/boot_test.hex",
-    parameter int USE_SD   = 0     // 0=embedded ROM, 1=SD card boot + SDRAM
+    parameter int USE_SD   = 0,    // 0=embedded ROM, 1=SD card boot + SDRAM
+    parameter int PPU_PRESCALE = 94 // PPU timing prescaler (1=sim, 94=hardware w/ VBlank delay)
 ) (
     input  logic       clk,        // 27 MHz
     input  logic       btn_s1,     // reset (active low)
@@ -87,6 +88,7 @@ module gb_top #(
     logic        sd_rom_wr;
     logic        sd_boot_error;
     logic [2:0]  sd_error_code;
+    logic [3:0]  sd_boot_state;
 
     // SDRAM controller wires (driven inside USE_SD generate block)
     logic        sdram_busy;
@@ -164,7 +166,8 @@ module gb_top #(
                 .sdram_busy    (sdram_busy),
                 .done          (boot_done),
                 .boot_error    (sd_boot_error),
-                .error_code    (sd_error_code)
+                .error_code    (sd_error_code),
+                .dbg_state     (sd_boot_state)
             );
 
             // SD card pin assignments
@@ -182,6 +185,7 @@ module gb_top #(
             assign sd_rom_wr     = 1'b0;
             assign sd_boot_error = 1'b0;
             assign sd_error_code = 3'd0;
+            assign sd_boot_state = 4'd0;
             assign sd_clk  = 1'b0;
             assign sd_cmd  = 1'b1;
             assign sd_dat1 = 1'b1;
@@ -247,7 +251,14 @@ module gb_top #(
     logic [15:0] dbg_pc, dbg_sp;
     logic [7:0]  dbg_a, dbg_f, dbg_b, dbg_c, dbg_d, dbg_e, dbg_h, dbg_l;
 
-    cpu u_cpu (
+    cpu #(
+        .BOOT_PC(USE_SD != 0 ? 16'h0100 : 16'h0000),
+        .BOOT_A (USE_SD != 0 ? 8'h01  : 8'h00),
+        .BOOT_F (USE_SD != 0 ? 8'hB0  : 8'h00),
+        .BOOT_BC(USE_SD != 0 ? 16'h0013 : 16'h0000),
+        .BOOT_DE(USE_SD != 0 ? 16'h00D8 : 16'h0000),
+        .BOOT_HL(USE_SD != 0 ? 16'h014D : 16'h0000)
+    ) u_cpu (
         .clk      (clk),
         .reset    (reset),
         .mem_addr (cpu_addr),
@@ -411,10 +422,9 @@ module gb_top #(
                             end
                         end
                         SCPU_DONE: begin
-                            // CPU will proceed (mem_wait=0), then on next cycle
-                            // cpu_rd/cpu_wr will drop, returning us to IDLE
-                            if (!cpu_sdram_rd && !cpu_sdram_extram_rd && !cpu_sdram_wr)
-                                scpu_state <= SCPU_IDLE;
+                            // CPU got its data (mem_wait=0 this cycle).
+                            // Return to IDLE so the next SDRAM access can start.
+                            scpu_state <= SCPU_IDLE;
                         end
                         default: scpu_state <= SCPU_IDLE;
                     endcase
@@ -541,7 +551,7 @@ module gb_top #(
         else
             bsram_read_done <= bsram_rd && !bsram_read_done;
     end
-    wire mem_wait = (bsram_rd && !bsram_read_done) || sdram_mem_wait;
+    (* keep *) wire mem_wait = (bsram_rd && !bsram_read_done) || sdram_mem_wait;
 
     // ---------------------------------------------------------------
     // I/O registers
@@ -556,8 +566,46 @@ module gb_top #(
             led_reg <= io_wdata;
     end
 
-    // LEDs are active low
-    assign led = ~led_reg[5:0];
+    // Debug diagnostics: count VRAM writes and detect LCDC writes
+    logic        dbg_lcdc_written;  // latched: CPU wrote to LCDC (FF40)
+    logic        dbg_vram_written;  // latched: CPU wrote to VRAM
+    logic [15:0] dbg_vram_wr_cnt;   // VRAM write counter
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            dbg_lcdc_written <= 1'b0;
+            dbg_vram_written <= 1'b0;
+            dbg_vram_wr_cnt  <= 16'd0;
+        end else begin
+            if (io_cs && io_wr && io_addr == 7'h40)
+                dbg_lcdc_written <= 1'b1;
+            if (vram_cs && vram_we) begin
+                dbg_vram_written <= 1'b1;
+                dbg_vram_wr_cnt  <= dbg_vram_wr_cnt + 16'd1;
+            end
+        end
+    end
+
+    // LEDs: normal LED register output for test, diagnostics for hardware
+    always_comb begin
+        if (USE_SD != 0 && !boot_done) begin
+            if (sd_boot_error)
+                led = ~{3'b111, sd_error_code};
+            else
+                led = ~{2'b00, sd_boot_state};
+        end else if (USE_SD != 0) begin
+            // Hardware: diagnostic LEDs
+            //   LED[0] = boot_done
+            //   LED[1] = LCDC[7] (lcd_on)
+            //   LED[2] = LCDC[0] (bg_enable)
+            //   LED[3] = BGP != 0 (palette set)
+            //   LED[4:5] = LY[7:6] (timing counter high bits)
+            led = ~{dbg_ppu_ly[7:6], |dbg_ppu_bgp, dbg_ppu_lcdc[0], dbg_ppu_lcdc[7], boot_done};
+        end else begin
+            // Simulation / USE_SD=0: LED register output
+            led = ~led_reg[5:0];
+        end
+    end
 
     // ---------------------------------------------------------------
     // Timer (FF04–FF07)
@@ -569,6 +617,7 @@ module gb_top #(
     timer u_timer (
         .clk            (clk),
         .reset          (reset),
+        .cpu_stall      (mem_wait),
         .io_cs          (io_cs),
         .io_addr        (io_addr),
         .io_wr          (io_wr),
@@ -706,9 +755,10 @@ module gb_top #(
     logic        lcd_pixel_req;
     logic        lcd_pixel_ready;
 
-    ppu u_ppu (
+    ppu #(.PPU_PRESCALE(PPU_PRESCALE), .BOOT_LCDC(USE_SD != 0 ? 8'h91 : 8'h00)) u_ppu (
         .clk              (clk),
         .reset            (reset),
+        .cpu_stall        (1'b0),  // PPU timing runs at LCD frame rate, not CPU rate
         .cpu_vram_addr    (vram_addr),
         .cpu_vram_cs      (vram_cs),
         .cpu_vram_we      (vram_we),
@@ -732,17 +782,24 @@ module gb_top #(
         .pixel_data       (lcd_pixel_data),
         .pixel_data_valid (lcd_pixel_ready),
         .irq_vblank       (ppu_irq_vblank),
-        .irq_stat         (ppu_irq_stat)
+        .irq_stat         (ppu_irq_stat),
+        .dbg_lcdc         (dbg_ppu_lcdc),
+        .dbg_ly           (dbg_ppu_ly),
+        .dbg_bgp          (dbg_ppu_bgp)
     );
 
+    logic [7:0] dbg_ppu_lcdc, dbg_ppu_ly, dbg_ppu_bgp;
+
     // ---------------------------------------------------------------
-    // Debug UART console
+    // Debug UART console (active after boot)
     // ---------------------------------------------------------------
+    logic debug_uart_tx;
+
     debug_console u_debug (
         .clk         (clk),
         .reset       (reset),
         .uart_rx_pin (uart_rx),
-        .uart_tx_pin (uart_tx),
+        .uart_tx_pin (debug_uart_tx),
         .dbg_pc      (dbg_pc),
         .dbg_sp      (dbg_sp),
         .dbg_a       (dbg_a),
@@ -755,13 +812,127 @@ module gb_top #(
         .dbg_l       (dbg_l),
         .dbg_halted  (halted),
         .dbg_if      ({3'b111, if_reg}),
-        .dbg_ie      (ie_reg)
+        .dbg_ie      (ie_reg),
+        .dbg_lcdc    (dbg_ppu_lcdc),
+        .dbg_bgp     (dbg_ppu_bgp),
+        .dbg_ly      (dbg_ppu_ly)
     );
+
+    // ---------------------------------------------------------------
+    // Boot UART log — sends status chars during SD boot
+    // ---------------------------------------------------------------
+    // Boot UART log — sends status chars during SD boot.
+    // Output: ">MmVvRr" then "." per cluster, then "D <size>\n" or "!<code>\n"
+    logic        boot_uart_tx;
+    logic        boot_uart_idle;  // queue empty and TX idle
+
+    generate
+        if (USE_SD != 0) begin : gen_boot_uart
+            logic [7:0] boot_tx_byte;
+            logic       boot_tx_valid;
+            logic       boot_tx_ready;
+
+            uart_tx u_boot_uart (
+                .clk   (clk),
+                .reset (hw_reset),
+                .data  (boot_tx_byte),
+                .valid (boot_tx_valid),
+                .ready (boot_tx_ready),
+                .tx    (boot_uart_tx)
+            );
+
+            // Char queue (4 entries)
+            logic [3:0] prev_state;
+            logic [7:0] pending_chars [0:3];
+            logic [2:0] char_head, char_tail;
+            logic [7:0] cluster_cnt;  // count clusters for progress dots
+
+            // State → ASCII char lookup
+            function automatic [7:0] state_char(input [3:0] s);
+                case (s)
+                    4'd0:  state_char = ">";  // S_WAIT_READY
+                    4'd1:  state_char = "M";  // S_READ_MBR
+                    4'd2:  state_char = "m";  // S_PARSE_MBR
+                    4'd3:  state_char = "V";  // S_READ_VBR
+                    4'd4:  state_char = "v";  // S_PARSE_VBR
+                    4'd5:  state_char = "R";  // S_READ_ROOT
+                    4'd6:  state_char = "r";  // S_PARSE_ROOT
+                    4'd9:  state_char = "D";  // S_DONE
+                    4'd10: state_char = "!";  // S_ERROR
+                    default: state_char = "?";
+                endcase
+            endfunction
+
+            always_ff @(posedge clk) begin
+                if (hw_reset) begin
+                    prev_state    <= 4'hF;
+                    char_head     <= 3'd0;
+                    char_tail     <= 3'd0;
+                    boot_tx_valid <= 1'b0;
+                    boot_tx_byte  <= 8'd0;
+                    cluster_cnt   <= 8'd0;
+                end else begin
+                    boot_tx_valid <= 1'b0;
+
+                    // Detect state change → enqueue char
+                    if (sd_boot_state != prev_state) begin
+                        prev_state <= sd_boot_state;
+
+                        // For S_LOAD_ROM (8): output "." every 10 clusters
+                        if (sd_boot_state == 4'd8) begin
+                            cluster_cnt <= cluster_cnt + 8'd1;
+                            if (cluster_cnt[3:0] == 4'd0) begin  // every 16 clusters (avoid modulo)
+                                pending_chars[char_head[1:0]] <= ".";
+                                char_head <= char_head + 3'd1;
+                            end
+                        end
+                        // Skip S_READ_FAT (7) — too verbose
+                        else if (sd_boot_state == 4'd7) begin
+                            // no output
+                        end
+                        // Error: enqueue "!<digit>\n"
+                        else if (sd_boot_state == 4'd10) begin
+                            pending_chars[char_head[1:0]] <= "!";
+                            pending_chars[(char_head[1:0] + 2'd1)] <= "0" + {5'd0, sd_error_code};
+                            char_head <= char_head + 3'd2;
+                        end
+                        // Done: enqueue "D\n"
+                        else if (sd_boot_state == 4'd9) begin
+                            pending_chars[char_head[1:0]] <= "D";
+                            pending_chars[(char_head[1:0] + 2'd1)] <= 8'h0A;
+                            char_head <= char_head + 3'd2;
+                        end
+                        // Other states: enqueue state char
+                        else begin
+                            pending_chars[char_head[1:0]] <= state_char(sd_boot_state);
+                            char_head <= char_head + 3'd1;
+                        end
+                    end
+
+                    // Drain queue to UART
+                    if (char_tail != char_head && boot_tx_ready && !boot_tx_valid) begin
+                        boot_tx_byte  <= pending_chars[char_tail[1:0]];
+                        boot_tx_valid <= 1'b1;
+                        char_tail     <= char_tail + 3'd1;
+                    end
+                end
+            end
+
+            assign boot_uart_idle = (char_tail == char_head) && boot_tx_ready;
+        end else begin : gen_no_boot_uart
+            assign boot_uart_tx   = 1'b1;  // idle high
+            assign boot_uart_idle = 1'b1;
+        end
+    endgenerate
+
+    // Mux UART TX: keep boot UART until queue is flushed after boot completes
+    assign uart_tx = (boot_done && boot_uart_idle) ? debug_uart_tx : boot_uart_tx;
 
     // ---------------------------------------------------------------
     // ST7789 LCD — driven by PPU pixel output
     // ---------------------------------------------------------------
-    st7789 u_lcd (
+    // VBlank delay: 10 scanlines × 114 mcycles × PPU_PRESCALE clocks
+    st7789 #(.VBLANK_CLOCKS(10 * 114 * PPU_PRESCALE)) u_lcd (
         .clk        (clk),
         .reset      (reset),
         .lcd_rst    (lcd_rst),

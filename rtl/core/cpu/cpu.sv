@@ -13,7 +13,14 @@
 // so that register writes take effect on the SAME clock edge that the
 // state machine advances. Only internal CPU state (ir, m_cycle, w/z regs,
 // mode flags) is updated in the always_ff block.
-module cpu (
+module cpu #(
+    parameter logic [15:0] BOOT_PC = 16'h0000,  // PC after reset (0x0100 to skip boot ROM)
+    parameter logic [7:0]  BOOT_A  = 8'h00,     // Post-boot register values (DMG: A=01)
+    parameter logic [7:0]  BOOT_F  = 8'h00,     // DMG: F=B0 (Z=1, H=1, C=1)
+    parameter logic [15:0] BOOT_BC = 16'h0000,  // DMG: BC=0013
+    parameter logic [15:0] BOOT_DE = 16'h0000,  // DMG: DE=00D8
+    parameter logic [15:0] BOOT_HL = 16'h0000   // DMG: HL=014D
+) (
     input  logic        clk,
     input  logic        reset,
 
@@ -94,8 +101,15 @@ module cpu (
     logic [7:0]  rf_out_d, rf_out_e;
     logic [7:0]  rf_out_h, rf_out_l;
 
-    regfile rf (
+    regfile #(
+        .BOOT_A (BOOT_A),  .BOOT_F (BOOT_F),
+        .BOOT_B (BOOT_BC[15:8]), .BOOT_C (BOOT_BC[7:0]),
+        .BOOT_D (BOOT_DE[15:8]), .BOOT_E (BOOT_DE[7:0]),
+        .BOOT_H (BOOT_HL[15:8]), .BOOT_L (BOOT_HL[7:0]),
+        .BOOT_SP(16'hFFFE), .BOOT_PC(BOOT_PC)
+    ) rf (
         .clk          (clk),
+        .reset        (reset),
         .r8_rsel      (rf_r8_rsel),
         .r8_rdata     (rf_r8_rdata),
         .r8_we        (rf_r8_we),
@@ -319,11 +333,7 @@ module cpu (
         int_ack         = 5'b0;
 
         if (reset) begin
-            // During reset: set SP and PC to initial values
-            rf_sp_we    = 1'b1;
-            rf_sp_wdata = 16'hFFFE;
-            rf_pc_we    = 1'b1;
-            rf_pc_wdata = 16'h0000;
+            // All registers initialized by regfile's reset block
         end else if (int_dispatch) begin
             // =============================================================
             // Interrupt dispatch: 5 M-cycles (m_cycle 0-4)
@@ -1205,7 +1215,12 @@ module cpu (
                 endcase
             end
         end
-        // BSRAM wait: suppress all external writes while CPU is frozen
+        // BSRAM wait: suppress all register writes while CPU is frozen.
+        // mem_wr is NOT gated here — it stays at its decoded value during
+        // wait states. This is safe because wait states only occur during
+        // reads (mem_wr naturally 0) or SDRAM accesses (address outside
+        // BSRAM range). Keeping mem_wr out of the mem_wait dependency
+        // prevents a false combinational loop through bsram_read_done.
         if (mem_wait) begin
             rf_r8_we     = 1'b0;
             rf_r16_we    = 1'b0;
@@ -1213,7 +1228,6 @@ module cpu (
             rf_flags_we  = 1'b0;
             rf_sp_we     = 1'b0;
             rf_pc_we     = 1'b0;
-            mem_wr       = 1'b0;
             int_ack      = 5'b0;
         end
     end

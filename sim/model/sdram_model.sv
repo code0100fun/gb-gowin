@@ -53,8 +53,11 @@ module sdram_model #(
 
     // CAS latency read pipeline
     // Each stage holds: {valid, 32-bit data}
-    logic        pipe_valid [0:CAS-1];
-    logic [31:0] pipe_data  [0:CAS-1];
+    // CAS+1 stages: data enters stage 0 on the same negedge as the READ
+    // command, then shifts through CAS more stages — total delay = CAS cycles.
+    localparam int PIPE_DEPTH = CAS + 1;
+    logic        pipe_valid [0:PIPE_DEPTH-1];
+    logic [31:0] pipe_data  [0:PIPE_DEPTH-1];
 
     // Build a byte address from bank + active row + column
     function automatic [22:0] make_addr(
@@ -76,7 +79,7 @@ module sdram_model #(
     always_ff @(negedge clk) begin
         if (!sdram_cs_n && sdram_cke) begin
             // Advance CAS pipeline
-            for (int i = CAS-1; i > 0; i--) begin
+            for (int i = PIPE_DEPTH-1; i > 0; i--) begin
                 pipe_valid[i] <= pipe_valid[i-1];
                 pipe_data[i]  <= pipe_data[i-1];
             end
@@ -151,7 +154,7 @@ module sdram_model #(
             endcase
         end else begin
             // CS high or CKE low — still advance pipeline
-            for (int i = CAS-1; i > 0; i--) begin
+            for (int i = PIPE_DEPTH-1; i > 0; i--) begin
                 pipe_valid[i] <= pipe_valid[i-1];
                 pipe_data[i]  <= pipe_data[i-1];
             end
@@ -162,8 +165,8 @@ module sdram_model #(
 
     // Drive DQ output when CAS pipeline delivers data
     always_comb begin
-        if (pipe_valid[CAS-1])
-            sdram_dq_in = pipe_data[CAS-1];
+        if (pipe_valid[PIPE_DEPTH-1])
+            sdram_dq_in = pipe_data[PIPE_DEPTH-1];
         else
             sdram_dq_in = 32'hZZZZZZZZ;
     end
@@ -176,7 +179,7 @@ module sdram_model #(
             active_row[i] = '0;
             row_active[i] = 1'b0;
         end
-        for (int i = 0; i < CAS; i++) begin
+        for (int i = 0; i < PIPE_DEPTH; i++) begin
             pipe_valid[i] = 1'b0;
             pipe_data[i]  = 32'd0;
         end

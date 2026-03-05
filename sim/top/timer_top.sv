@@ -207,6 +207,7 @@ module timer_top #(
     timer u_timer (
         .clk            (clk),
         .reset          (reset),
+        .cpu_stall      (1'b0),
         .io_cs          (io_cs),
         .io_addr        (io_addr),
         .io_wr          (io_wr),

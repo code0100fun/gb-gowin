@@ -22,6 +22,9 @@ module timer (
     input  logic       clk,
     input  logic       reset,
 
+    // CPU stall — freeze timer when CPU is stalled on SDRAM
+    input  logic       cpu_stall,
+
     // I/O bus
     input  logic       io_cs,
     input  logic [6:0] io_addr,
@@ -100,7 +103,9 @@ module timer (
             tac      <= 3'b000;
             prev_bit <= 1'b0;
             irq      <= 1'b0;
-        end else begin
+        end else if (!cpu_stall) begin
+            // Freeze timer when CPU is stalled on SDRAM — keeps
+            // CPU and timer synchronized
             // Default: clear IRQ pulse
             irq <= 1'b0;
 

@@ -24,8 +24,20 @@
 // F register: bits [3:0] are hardwired to 0.
 //   Bit 7 = Z (Zero), Bit 6 = N (Subtract),
 //   Bit 5 = H (Half-carry), Bit 4 = C (Carry)
-module regfile (
+module regfile #(
+    parameter logic [7:0]  BOOT_A  = 8'h00,
+    parameter logic [7:0]  BOOT_F  = 8'h00,
+    parameter logic [7:0]  BOOT_B  = 8'h00,
+    parameter logic [7:0]  BOOT_C  = 8'h00,
+    parameter logic [7:0]  BOOT_D  = 8'h00,
+    parameter logic [7:0]  BOOT_E  = 8'h00,
+    parameter logic [7:0]  BOOT_H  = 8'h00,
+    parameter logic [7:0]  BOOT_L  = 8'h00,
+    parameter logic [15:0] BOOT_SP = 16'hFFFE,
+    parameter logic [15:0] BOOT_PC = 16'h0000
+) (
     input  logic        clk,
+    input  logic        reset,
 
     // 8-bit register access
     input  logic [2:0]  r8_rsel,      // read select
@@ -137,6 +149,19 @@ module regfile (
     // Write logic (synchronous)
     // ---------------------------------------------------------------
     always_ff @(posedge clk) begin
+        if (reset) begin
+            reg_a  <= BOOT_A;
+            reg_f  <= BOOT_F & 8'hF0;
+            reg_b  <= BOOT_B;
+            reg_c  <= BOOT_C;
+            reg_d  <= BOOT_D;
+            reg_e  <= BOOT_E;
+            reg_h  <= BOOT_H;
+            reg_l  <= BOOT_L;
+            reg_sp <= BOOT_SP;
+            reg_pc <= BOOT_PC;
+        end else begin
+
         // 8-bit register writes
         if (r8_we) begin
             unique case (r8_wsel)
@@ -183,6 +208,8 @@ module regfile (
             reg_sp <= sp_wdata;
         if (pc_we)
             reg_pc <= pc_wdata;
+
+        end // else (not reset)
     end
 
 endmodule

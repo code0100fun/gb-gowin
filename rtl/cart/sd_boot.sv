@@ -28,7 +28,8 @@ module sd_boot (
     // Status
     output logic        done,         // ROM loaded, CPU can start
     output logic        boot_error,   // couldn't find/load ROM
-    output logic [2:0]  error_code    // debug: which stage failed
+    output logic [2:0]  error_code,   // debug: which stage failed
+    output logic [3:0]  dbg_state     // debug: current FSM state
 );
 
     // Error codes
@@ -55,6 +56,7 @@ module sd_boot (
     } state_t;
 
     state_t state;
+    assign dbg_state = state;
 
     // Sector read state
     logic [8:0]  byte_cnt;       // 0-511 within current sector
@@ -97,6 +99,13 @@ module sd_boot (
     // FAT entry byte offset within sector (cluster_index * 4)
     wire [8:0] fat_offset = {file_cluster[6:0], 2'b00};
 
+    // Two-phase SDRAM write handshake:
+    //   Phase 1: pending_wr=1 → latch rom_wr/addr/data, clear pending_wr
+    //   Phase 2: rom_wr=1, !sdram_busy → write accepted, clear rom_wr, count byte
+    // This avoids the race where a single-cycle rom_wr pulse could be
+    // missed if a refresh makes sdram_busy=1 on the cycle rom_wr arrives.
+    logic rom_wr_active;  // write request in flight (waiting for SDRAM)
+
     // Helper: cluster to LBA
     function automatic [31:0] cluster_to_lba(input logic [31:0] cluster);
         cluster_to_lba = data_start + (cluster - 32'd2) * {24'd0, sectors_per_cluster};
@@ -118,6 +127,7 @@ module sd_boot (
             rom_addr       <= 23'd0;
             rom_data       <= 8'd0;
             rom_wr         <= 1'b0;
+            rom_wr_active  <= 1'b0;
             done           <= 1'b0;
             boot_error     <= 1'b0;
             error_code     <= ERR_NONE;
@@ -130,15 +140,22 @@ module sd_boot (
             pending_wr     <= 1'b0;
         end else begin
             sd_read_start <= 1'b0;
-            rom_wr        <= 1'b0;
 
-            // Drain pending byte to SDRAM when not busy
-            if (pending_wr && !sdram_busy) begin
-                rom_addr   <= rom_bytes_loaded[22:0];
-                rom_data   <= pending_byte;
-                rom_wr     <= 1'b1;
-                pending_wr <= 1'b0;
+            // Two-phase SDRAM write handshake:
+            // Phase 2: rom_wr is already asserted — wait for SDRAM to accept
+            if (rom_wr_active && !sdram_busy) begin
+                rom_wr        <= 1'b0;
+                rom_wr_active <= 1'b0;
                 rom_bytes_loaded <= rom_bytes_loaded + 32'd1;
+            end
+
+            // Phase 1: pending byte ready, no write in flight → latch & assert
+            if (pending_wr && !rom_wr_active) begin
+                rom_addr      <= rom_bytes_loaded[22:0];
+                rom_data      <= pending_byte;
+                rom_wr        <= 1'b1;
+                rom_wr_active <= 1'b1;
+                pending_wr    <= 1'b0;
             end
 
             // Track byte position within sector
@@ -367,7 +384,7 @@ module sd_boot (
                 // Load ROM data — read cluster chain
                 // =============================================================
                 S_LOAD_ROM: begin
-                    if (!sector_reading && !sd_read_start && !pending_wr) begin
+                    if (!sector_reading && !sd_read_start && !pending_wr && !rom_wr_active) begin
                         if (rom_bytes_loaded >= rom_file_size) begin
                             // All bytes written to SDRAM
                             state <= S_DONE;

@@ -6,7 +6,12 @@
 // the SPI protocol, initialization sequence, and coordinate tracking.
 //
 // SPI clock = system clock / 4 (~6.75 MHz at 27 MHz input).
-module st7789 (
+module st7789 #(
+    // VBlank delay in system clock cycles between LCD frames.
+    // Set to 10 * 114 * PPU_PRESCALE to match PPU VBlank duration.
+    // 0 = no delay (continuous streaming, for backward compatibility).
+    parameter int VBLANK_CLOCKS = 0
+) (
     input  logic        clk,        // 27 MHz system clock
     input  logic        reset,
 
@@ -130,7 +135,7 @@ module st7789 (
             6'd5:    init_entry = {2'b01, 8'h55};  //   RGB565
             // ---- Memory access control ----
             6'd6:    init_entry = {2'b00, 8'h36};  // MADCTL
-            6'd7:    init_entry = {2'b01, 8'h00};  //   no rotation
+            6'd7:    init_entry = {2'b01, 8'h00};  //   No transform (CASET=horizontal, RASET=vertical)
             // ---- Porch control ----
             6'd8:    init_entry = {2'b00, 8'hB2};  // PORCTRL
             6'd9:    init_entry = {2'b01, 8'h0C};
@@ -183,13 +188,13 @@ module st7789 (
             // ---- Start full-screen clear ----
             6'd44:   init_entry = {2'b00, 8'h2C};  // RAMWR (clear)
             6'd45:   init_entry = {2'b11, 8'h00};  // end → clear 240×240 black
-            // ---- Game window: CASET 40–199 ----
+            // ---- Game window: CASET 40–199 (160px, inner loop) ----
             6'd46:   init_entry = {2'b00, 8'h2A};  // CASET
             6'd47:   init_entry = {2'b01, 8'h00};  //   x_start high
             6'd48:   init_entry = {2'b01, 8'h28};  //   x_start low  (40)
             6'd49:   init_entry = {2'b01, 8'h00};  //   x_end high
             6'd50:   init_entry = {2'b01, 8'hC7};  //   x_end low    (199)
-            // ---- Game window: RASET 48–191 ----
+            // ---- Game window: RASET 48–191 (144px, outer loop) ----
             6'd51:   init_entry = {2'b00, 8'h2B};  // RASET
             6'd52:   init_entry = {2'b01, 8'h00};  //   y_start high
             6'd53:   init_entry = {2'b01, 8'h30};  //   y_start low  (48)
@@ -205,15 +210,17 @@ module st7789 (
     // -----------------------------------------------------------------
     // Main state machine
     // -----------------------------------------------------------------
-    typedef enum logic [2:0] {
-        S_RESET_LO,    // hold RST low
-        S_RESET_HI,    // wait after RST release
-        S_INIT,        // walk init_rom, send bytes / delay
-        S_INIT_WAIT,   // waiting for SPI byte to finish
-        S_DELAY,       // timed delay
-        S_STREAM_HI,   // send pixel high byte
-        S_STREAM_LO,   // send pixel low byte
-        S_STREAM_WAIT  // wait for low byte to finish, advance coords
+    typedef enum logic [3:0] {
+        S_RESET_LO,     // hold RST low
+        S_RESET_HI,     // wait after RST release
+        S_INIT,         // walk init_rom, send bytes / delay
+        S_INIT_WAIT,    // waiting for SPI byte to finish
+        S_DELAY,        // timed delay
+        S_STREAM_FETCH, // wait 1 cycle for PPU to clear pixel_data_valid
+        S_STREAM_HI,    // send pixel high byte
+        S_STREAM_LO,    // send pixel low byte
+        S_STREAM_WAIT,  // wait for low byte to finish, advance coords
+        S_VBLANK        // VBlank delay between frames
     } state_t;
 
     state_t      state;
@@ -327,7 +334,7 @@ module st7789 (
                                     // Second end / frame restart: stream game pixels
                                     busy      <= 1'b0;
                                     pixel_req <= 1'b1;
-                                    state     <= S_STREAM_HI;
+                                    state     <= S_STREAM_FETCH;
                                 end
                             end
                         endcase
@@ -357,6 +364,12 @@ module st7789 (
                 end
 
                 // ---- Pixel streaming ----
+                // Wait 1 cycle after pixel_req so PPU can clear
+                // pixel_data_valid (prevents reading stale pixel data)
+                S_STREAM_FETCH: begin
+                    state <= S_STREAM_HI;
+                end
+
                 S_STREAM_HI: begin
                     if (!spi_busy && (clearing || pixel_ready)) begin
                         lcd_cs     <= 1'b0;
@@ -388,23 +401,39 @@ module st7789 (
                                     // Clear done — set up game window
                                     clearing <= 1'b0;
                                     init_idx <= GAME_WIN_IDX[5:0];
+                                    state    <= S_INIT;
+                                end else if (VBLANK_CLOCKS > 0) begin
+                                    // Frame done — VBlank delay before next frame
+                                    delay_ctr <= 22'd0;
+                                    state     <= S_VBLANK;
                                 end else begin
-                                    // Frame done — re-send RAMWR
+                                    // Frame done — re-send RAMWR immediately
                                     init_idx <= RAMWR_IDX[5:0];
+                                    state    <= S_INIT;
                                 end
-                                state <= S_INIT;
                             end else begin
                                 pixel_y <= pixel_y + 8'd1;
                                 px_cnt  <= px_cnt + 15'd1;
                                 if (!clearing) pixel_req <= 1'b1;
-                                state   <= S_STREAM_HI;
+                                state   <= clearing ? S_STREAM_HI : S_STREAM_FETCH;
                             end
                         end else begin
                             pixel_x <= pixel_x + 8'd1;
                             px_cnt  <= px_cnt + 15'd1;
                             if (!clearing) pixel_req <= 1'b1;
-                            state   <= S_STREAM_HI;
+                            state   <= clearing ? S_STREAM_HI : S_STREAM_FETCH;
                         end
+                    end
+                end
+
+                // ---- VBlank delay between frames ----
+                S_VBLANK: begin
+                    if (delay_ctr == VBLANK_CLOCKS[21:0] - 22'd1) begin
+                        delay_ctr <= 22'd0;
+                        init_idx  <= RAMWR_IDX[5:0];
+                        state     <= S_INIT;
+                    end else begin
+                        delay_ctr <= delay_ctr + 22'd1;
                     end
                 end
 

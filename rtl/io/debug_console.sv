@@ -29,7 +29,12 @@ module debug_console #(
 
     // Interrupt debug
     input  logic [7:0]  dbg_if,
-    input  logic [7:0]  dbg_ie
+    input  logic [7:0]  dbg_ie,
+
+    // PPU debug
+    input  logic [7:0]  dbg_lcdc,
+    input  logic [7:0]  dbg_bgp,
+    input  logic [7:0]  dbg_ly
 );
 
     // -----------------------------------------------------------------
@@ -100,6 +105,7 @@ module debug_console #(
     logic [15:0] sh_pc, sh_sp;
     logic [7:0]  sh_a, sh_f, sh_b, sh_c, sh_d, sh_e, sh_h, sh_l;
     logic [7:0]  sh_if, sh_ie;
+    logic [7:0]  sh_lcdc, sh_bgp, sh_ly;
 
     // -----------------------------------------------------------------
     // Response FSM
@@ -113,13 +119,13 @@ module debug_console #(
 
     state_t state;
     logic [1:0] cmd;        // 0=?, 1=p, 2=r
-    logic [5:0] byte_idx;   // index into response
-    logic [5:0] resp_len;   // total bytes in current response
+    logic [6:0] byte_idx;   // index into response
+    logic [6:0] resp_len;   // total bytes in current response
 
     // Response lengths
-    localparam logic [5:0] LEN_HELP = 6'd13;  // "cmds: ? p r\r\n"
-    localparam logic [5:0] LEN_PC   = 6'd9;   // "PC=XXXX\r\n"
-    localparam logic [5:0] LEN_REGS = 6'd63;  // full register dump
+    localparam logic [6:0] LEN_HELP = 7'd13;  // "cmds: ? p r\r\n"
+    localparam logic [6:0] LEN_PC   = 7'd9;   // "PC=XXXX\r\n"
+    localparam logic [6:0] LEN_REGS = 7'd81;  // full register dump + PPU regs
 
     // -----------------------------------------------------------------
     // Response byte mux (combinational)
@@ -224,8 +230,27 @@ module debug_console #(
                     6'd58: resp_byte = CH_EQ;
                     6'd59: resp_byte = hex(sh_ie[7:4]);
                     6'd60: resp_byte = hex(sh_ie[3:0]);
-                    6'd61: resp_byte = CH_CR;
-                    6'd62: resp_byte = CH_LF;
+                    // PPU registers
+                    6'd61: resp_byte = CH_SP;
+                    6'd62: resp_byte = 8'h4C; // 'L'
+                    6'd63: resp_byte = 8'h43; // 'C'
+                    7'd64: resp_byte = CH_EQ;
+                    7'd65: resp_byte = hex(sh_lcdc[7:4]);
+                    7'd66: resp_byte = hex(sh_lcdc[3:0]);
+                    7'd67: resp_byte = CH_SP;
+                    7'd68: resp_byte = CH_B;
+                    7'd69: resp_byte = 8'h47; // 'G'
+                    7'd70: resp_byte = CH_EQ;
+                    7'd71: resp_byte = hex(sh_bgp[7:4]);
+                    7'd72: resp_byte = hex(sh_bgp[3:0]);
+                    7'd73: resp_byte = CH_SP;
+                    7'd74: resp_byte = CH_L;
+                    7'd75: resp_byte = 8'h59; // 'Y'
+                    7'd76: resp_byte = CH_EQ;
+                    7'd77: resp_byte = hex(sh_ly[7:4]);
+                    7'd78: resp_byte = hex(sh_ly[3:0]);
+                    7'd79: resp_byte = CH_CR;
+                    7'd80: resp_byte = CH_LF;
                     default: resp_byte = 8'h00;
                 endcase
             end
@@ -263,6 +288,7 @@ module debug_console #(
                         sh_d  <= dbg_d;  sh_e  <= dbg_e;
                         sh_h  <= dbg_h;  sh_l  <= dbg_l;
                         sh_if <= dbg_if; sh_ie <= dbg_ie;
+                        sh_lcdc <= dbg_lcdc; sh_bgp <= dbg_bgp; sh_ly <= dbg_ly;
 
                         case (rx_data)
                             8'h3F: begin // '?'
@@ -307,7 +333,7 @@ module debug_console #(
                 S_WAIT: begin
                     // Wait for TX to finish sending the byte.
                     if (tx_ready) begin
-                        if (byte_idx + 6'd1 == resp_len) begin
+                        if (byte_idx + 7'd1 == resp_len) begin
                             state <= S_IDLE;
                         end else begin
                             byte_idx <= byte_idx + 6'd1;

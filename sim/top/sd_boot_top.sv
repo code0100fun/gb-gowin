@@ -112,7 +112,8 @@ module sd_boot_top (
         .sdram_busy    (1'b0),         // no backpressure in test
         .done          (done),
         .boot_error    (boot_error),
-        .error_code    (error_code)
+        .error_code    (error_code),
+        .dbg_state     ()
     );
 
     sd_card_model #(

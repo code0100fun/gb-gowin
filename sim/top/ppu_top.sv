@@ -48,9 +48,11 @@ module ppu_top (
     // I/O rdata_valid not needed at wrapper level
     logic io_rdata_valid;
 
-    ppu u_ppu (
+    ppu #(.PPU_PRESCALE(1)) u_ppu (
         .clk            (clk),
         .reset          (reset),
+        .cpu_stall      (1'b0),
+        .dbg_lcdc       (), .dbg_ly(), .dbg_bgp(),
 
         // VRAM: testbench drives directly (Port A of dual_port_ram)
         .cpu_vram_addr  (vram_addr),

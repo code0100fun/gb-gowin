@@ -132,7 +132,9 @@ module sdram_ctrl #(
     // ---------------------------------------------------------------
     localparam int RD_ACTIVATE   = 0;
     localparam int RD_CMD        = RD_ACTIVATE + T_RCD;
-    localparam int RD_DATA       = RD_CMD + CAS;
+    // +1: READ cmd is registered (appears on pins 1 cycle after RD_CMD),
+    // then SDRAM needs CAS cycles after latching it at its clock edge.
+    localparam int RD_DATA       = RD_CMD + CAS + 1;
     localparam int RD_DONE       = RD_DATA + 1;
 
     localparam int WR_ACTIVATE   = 0;

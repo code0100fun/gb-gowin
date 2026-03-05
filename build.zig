@@ -327,6 +327,7 @@ pub fn build(b: *std.Build) void {
             "-Wno-UNUSEDSIGNAL",
             "-Wno-UNUSEDPARAM",
             "-Wno-INITIALDLY",
+            "-Wno-PINCONNECTEMPTY",
         },
     });
 
@@ -398,6 +399,7 @@ pub fn build(b: *std.Build) void {
             "-Wno-PINCONNECTEMPTY",
             "-GROM_SIZE=64",
             "-GROM_FILE=\"sim/data/boot_test.hex\"",
+            "-GPPU_PRESCALE=1",
         },
     });
 

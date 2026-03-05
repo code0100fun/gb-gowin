@@ -17,7 +17,16 @@
 // Timing: autonomous mcycle/scanline counters provide accurate LY,
 // mode transitions (0/1/2/3), and STAT interrupts. Rendering is still
 // LCD-driven (pixel_fetch from ST7789 controller).
-module ppu (
+module ppu #(
+    // Prescaler for PPU timing counters. Slows mcycle_ctr/ly_ctr to
+    // match the LCD SPI frame rate. Set to 1 for simulation (1:1 with
+    // system clock) or 88 for hardware (matches ST7789 SPI ÷4 rate).
+    parameter int PPU_PRESCALE = 88,
+    // LCDC value after reset. Set to 8'h91 when skipping the boot ROM
+    // (LCD on, BG on, unsigned tile data) so that LY advances and games
+    // can detect VBlank during their init sequence.
+    parameter logic [7:0] BOOT_LCDC = 8'h00
+) (
     input  logic        clk,
     input  logic        reset,
 
@@ -51,9 +60,17 @@ module ppu (
     output logic [15:0] pixel_data,
     output logic        pixel_data_valid, // level: pixel_data is ready
 
+    // CPU stall — freeze PPU timing when CPU is stalled on SDRAM
+    input  logic        cpu_stall,
+
     // Interrupts
     output logic        irq_vblank,
-    output logic        irq_stat
+    output logic        irq_stat,
+
+    // Debug outputs
+    output logic [7:0]  dbg_lcdc,
+    output logic [7:0]  dbg_ly,
+    output logic [7:0]  dbg_bgp
 );
 
     // -----------------------------------------------------------------
@@ -127,7 +144,7 @@ module ppu (
     // Register writes
     always_ff @(posedge clk) begin
         if (reset) begin
-            reg_lcdc <= 8'h00;
+            reg_lcdc <= BOOT_LCDC;
             reg_stat <= 8'h00;
             reg_scy  <= 8'h00;
             reg_scx  <= 8'h00;
@@ -227,11 +244,16 @@ module ppu (
     wire lcd_on        = reg_lcdc[7];
     wire win_map_hi    = reg_lcdc[6]; // 0 = 9800, 1 = 9C00
     wire win_enable    = reg_lcdc[5];
-    wire tile_data_sel = reg_lcdc[4]; // 0 = 8800/signed, 1 = 8000/unsigned
+    wire tile_data_sel = 1'b1; // DIAGNOSTIC: force unsigned mode // reg_lcdc[4]
     wire bg_map_hi     = reg_lcdc[3]; // 0 = 9800, 1 = 9C00
     wire obj_tall      = reg_lcdc[2]; // 0 = 8×8, 1 = 8×16
     wire obj_enable    = reg_lcdc[1];
     wire bg_enable     = reg_lcdc[0];
+
+    // Debug outputs
+    assign dbg_lcdc = reg_lcdc;
+    assign dbg_ly   = ly;
+    assign dbg_bgp  = reg_bgp;
 
     // -----------------------------------------------------------------
     // Timing counters — autonomous PPU timing
@@ -240,28 +262,42 @@ module ppu (
     // ly_ctr:     0–153 (154 scanlines per frame)
     // ppu_mode:   derived combinationally from counters
     //
-    // These counters run independently of the LCD-driven rendering
-    // pipeline. They provide accurate register values and interrupts.
+    // A prescaler slows these counters to match the LCD SPI frame rate.
+    // The ST7789 outputs ~67 system clocks per pixel (SPI ÷4, 16 bits).
+    // LCD frame = 160×144×67 ≈ 1,543,680 clocks.
+    // PPU frame = 154×114 = 17,556 M-cycles.
+    // Prescaler = 1,543,680 / 17,556 ≈ 88.
     // -----------------------------------------------------------------
     logic [6:0] mcycle_ctr;
     logic [7:0] ly_ctr;
     logic [1:0] ppu_mode;
+    logic [6:0] prescale_ctr;
 
     initial begin
-        mcycle_ctr = 7'd0;
-        ly_ctr     = 8'd0;
+        mcycle_ctr   = 7'd0;
+        ly_ctr       = 8'd0;
+        prescale_ctr = 7'd0;
     end
 
     always_ff @(posedge clk) begin
         if (reset || !lcd_on) begin
-            mcycle_ctr <= 7'd0;
-            ly_ctr     <= 8'd0;
-        end else begin
-            if (mcycle_ctr == 7'd113) begin
-                mcycle_ctr <= 7'd0;
-                ly_ctr <= (ly_ctr == 8'd153) ? 8'd0 : ly_ctr + 8'd1;
+            mcycle_ctr   <= 7'd0;
+            ly_ctr       <= 8'd0;
+            prescale_ctr <= 7'd0;
+        end else if (!cpu_stall) begin
+            // Freeze PPU timing when CPU is stalled on SDRAM — keeps
+            // CPU and PPU synchronized (same approach as Game Bub, GBTang)
+            if (prescale_ctr == PPU_PRESCALE[6:0] - 7'd1) begin
+                prescale_ctr <= 7'd0;
+                // Advance M-cycle counter
+                if (mcycle_ctr == 7'd113) begin
+                    mcycle_ctr <= 7'd0;
+                    ly_ctr <= (ly_ctr == 8'd153) ? 8'd0 : ly_ctr + 8'd1;
+                end else begin
+                    mcycle_ctr <= mcycle_ctr + 7'd1;
+                end
             end else begin
-                mcycle_ctr <= mcycle_ctr + 7'd1;
+                prescale_ctr <= prescale_ctr + 7'd1;
             end
         end
     end
@@ -654,7 +690,7 @@ module ppu (
 
                 PX_BG_HI: begin
                     // rdata_b has bg tile high byte — compute BG pixel
-                    if (!lcd_on || !bg_enable) begin
+                    if (!lcd_on) begin  // DIAGNOSTIC: removed !bg_enable check
                         pixel_data <= 16'hFFFF;
                         pixel_data_valid <= 1'b1;
                         px_state <= PX_DONE;
